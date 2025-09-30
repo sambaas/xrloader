@@ -248,11 +248,23 @@ class XRApp {
         try {
             this.updateStatus('Starting AR session...');
             
-            const session = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['hit-test', 'anchors'],
-                optionalFeatures: ['dom-overlay'],
-                domOverlay: { root: document.getElementById('ui') }
-            });
+            // Try with both required features first
+            let session;
+            try {
+                session = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['hit-test'],
+                    optionalFeatures: ['anchors', 'dom-overlay'],
+                    domOverlay: { root: document.getElementById('ui') }
+                });
+            } catch (error) {
+                console.warn('Failed with anchors as optional, trying without anchors:', error);
+                // Fallback: try without anchors at all
+                session = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['hit-test'],
+                    optionalFeatures: ['dom-overlay'],
+                    domOverlay: { root: document.getElementById('ui') }
+                });
+            }
             
             this.xrSession = session;
             await this.renderer.xr.setSession(session);
@@ -260,7 +272,11 @@ class XRApp {
             session.addEventListener('end', () => this.onSessionEnd());
             session.addEventListener('select', (event) => this.onSelect(event));
             
-            this.updateStatus('AR Session started! Point at a surface and tap to place the model.');
+            // Check if anchors are actually supported
+            const supportsAnchors = 'createAnchor' in session;
+            const anchorStatus = supportsAnchors ? 'with anchor support' : 'without anchor support';
+            
+            this.updateStatus(`AR Session started ${anchorStatus}! Point at a surface and tap to place the model.`);
             
         } catch (error) {
             console.error('Error starting XR session:', error);
@@ -269,7 +285,7 @@ class XRApp {
             if (error.name === 'NotAllowedError') {
                 errorMessage += 'Permission denied. Please allow camera access.';
             } else if (error.name === 'NotSupportedError') {
-                errorMessage += 'Required AR features not supported.';
+                errorMessage += 'AR features not supported. Try using a different browser or device.';
             } else {
                 errorMessage += error.message;
             }
@@ -296,18 +312,18 @@ class XRApp {
         const modelClone = this.loadedModel.clone();
         modelClone.position.setFromMatrixPosition(this.reticle.matrix);
         
-        // Try to create an anchor
-        if (this.reticle.visible && frame.session.createAnchor) {
+        // Try to create an anchor if supported
+        if (this.reticle.visible && session.createAnchor) {
             try {
                 const hitTestResults = frame.getHitTestResults(this.hitTestSource);
                 if (hitTestResults.length > 0) {
                     const hit = hitTestResults[0];
-                    const anchorPose = hit.getPose(frame.session.referenceSpace);
+                    const anchorPose = hit.getPose(session.referenceSpace);
                     
                     // Create anchor at the hit location
-                    const anchor = await frame.session.createAnchor(
+                    const anchor = await session.createAnchor(
                         anchorPose.transform,
-                        frame.session.referenceSpace
+                        session.referenceSpace
                     );
                     
                     if (anchor) {
@@ -321,21 +337,18 @@ class XRApp {
                         
                         this.updateStatus(`Model placed with anchor! (${this.placedModels.length} total)`);
                         console.log('Model placed with anchor successfully');
+                        return;
                     }
                 }
             } catch (error) {
                 console.warn('Anchor creation failed, placing without anchor:', error);
-                // Fallback: place without anchor
-                this.scene.add(modelClone);
-                this.placedModels.push(modelClone);
-                this.updateStatus(`Model placed! (${this.placedModels.length} total)`);
             }
-        } else {
-            // Fallback: place without anchor
-            this.scene.add(modelClone);
-            this.placedModels.push(modelClone);
-            this.updateStatus(`Model placed! (${this.placedModels.length} total)`);
         }
+        
+        // Fallback: place without anchor
+        this.scene.add(modelClone);
+        this.placedModels.push(modelClone);
+        this.updateStatus(`Model placed! (${this.placedModels.length} total)`);
     }
 
     render(timestamp, frame) {
