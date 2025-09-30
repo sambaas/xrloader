@@ -14,10 +14,7 @@ class XRApp {
         
         this.loadedModel = null;
         this.placedModels = [];
-        this.anchors = [];
         this.reticle = null;
-        this.hitTestSource = null;
-        this.hitTestSourceRequested = false;
         this.isXRSupported = false;
         
         // Controller and interaction state
@@ -26,7 +23,6 @@ class XRApp {
         this.selectedModel = null;
         this.isGrabbing = false;
         this.grabOffset = new THREE.Vector3();
-        this.initialGrabDistance = 0;
         
         this.init();
     }
@@ -261,22 +257,8 @@ class XRApp {
         try {
             this.updateStatus('Starting AR session...');
             
-            // Try with minimal features first - Quest 3 is very picky about required features
-            let session;
-            try {
-                // First attempt: Try with no required features, everything optional
-                session = await navigator.xr.requestSession('immersive-ar', {
-                    optionalFeatures: ['hit-test', 'anchors', 'dom-overlay', 'hand-tracking'],
-                    domOverlay: { root: document.getElementById('ui') }
-                });
-            } catch (error) {
-                console.warn('Failed with all optional features, trying minimal:', error);
-                // Fallback: absolute minimal AR session
-                session = await navigator.xr.requestSession('immersive-ar', {
-                    optionalFeatures: ['dom-overlay'],
-                    domOverlay: { root: document.getElementById('ui') }
-                });
-            }
+            // Minimal AR session - no fancy features, just passthrough
+            const session = await navigator.xr.requestSession('immersive-ar');
             
             this.xrSession = session;
             await this.renderer.xr.setSession(session);
@@ -286,35 +268,17 @@ class XRApp {
             
             session.addEventListener('end', () => this.onSessionEnd());
             session.addEventListener('select', (event) => this.onSelect(event));
-            session.addEventListener('squeeze', (event) => this.onSqueeze(event));
-            session.addEventListener('squeezestart', (event) => this.onSqueezeStart(event));
-            session.addEventListener('squeezeend', (event) => this.onSqueezeEnd(event));
             
-            // Check which features are actually supported
-            const supportsAnchors = 'createAnchor' in session;
-            const supportsHitTest = this.hitTestSource !== null;
-            
-            let statusMessage = 'AR Session started!';
-            if (supportsAnchors) statusMessage += ' (Anchors supported)';
-            if (supportsHitTest) statusMessage += ' (Hit-test supported)';
-            statusMessage += ' Point at a surface and tap to place models.';
-            
-            this.updateStatus(statusMessage);
+            this.updateStatus('AR Session started! Tap to place models. Squeeze controllers to grab and move.');
             
         } catch (error) {
             console.error('Error starting XR session:', error);
-            let errorMessage = 'Failed to start AR session: ';
-            
-            errorMessage += error.message;
-            
-            this.updateStatus(errorMessage);
+            this.updateStatus('Failed to start AR session: ' + error.message);
         }
     }
 
     onSessionEnd() {
         this.xrSession = null;
-        this.hitTestSource = null;
-        this.hitTestSourceRequested = false;
         this.reticle.visible = false;
         this.selectedModel = null;
         this.isGrabbing = false;
@@ -399,62 +363,6 @@ class XRApp {
         return closestModel;
     }
 
-    onSqueezeStart(event) {
-        const controller = this.controllers[event.data.handedness === 'right' ? 0 : 1];
-        if (!controller) return;
-
-        const controllerPosition = new THREE.Vector3();
-        controller.getWorldPosition(controllerPosition);
-
-        // Find closest model to grab
-        const closestModel = this.findClosestModel(controllerPosition, 0.5);
-        
-        if (closestModel) {
-            this.selectedModel = closestModel;
-            this.isGrabbing = true;
-            
-            // Calculate grab offset
-            this.grabOffset.copy(closestModel.position).sub(controllerPosition);
-            this.initialGrabDistance = controllerPosition.distanceTo(closestModel.position);
-            
-            // Visual feedback
-            this.selectedModel.scale.multiplyScalar(1.1);
-            this.updateStatus(`Grabbed model! Use squeeze to move, Y/B button to snap to front.`);
-            
-            console.log('Grabbed model at distance:', this.initialGrabDistance);
-        }
-    }
-
-    onSqueezeEnd(event) {
-        if (this.isGrabbing && this.selectedModel) {
-            // Reset visual feedback
-            this.selectedModel.scale.divideScalar(1.1);
-            this.updateStatus(`Model released. Tap to place new models or squeeze to grab again.`);
-        }
-        
-        this.isGrabbing = false;
-        this.selectedModel = null;
-    }
-
-    onSqueeze(event) {
-        // Handle continuous squeeze (movement)
-        if (this.isGrabbing && this.selectedModel) {
-            const controller = this.controllers[event.data.handedness === 'right' ? 0 : 1];
-            if (!controller) return;
-
-            const controllerPosition = new THREE.Vector3();
-            controller.getWorldPosition(controllerPosition);
-
-            // Move model with controller
-            this.selectedModel.position.copy(controllerPosition).add(this.grabOffset);
-            
-            // Optional: Add rotation based on controller orientation
-            const controllerQuaternion = new THREE.Quaternion();
-            controller.getWorldQuaternion(controllerQuaternion);
-            this.selectedModel.quaternion.copy(controllerQuaternion);
-        }
-    }
-
     onButtonPress(controllerIndex, button) {
         console.log(`Controller ${controllerIndex} ${button} pressed`);
         
@@ -521,65 +429,30 @@ class XRApp {
     }
 
     async onSelect(event) {
-        if (!this.loadedModel || !this.reticle.visible) return;
-        
-        const frame = event.frame;
-        const session = frame.session;
+        if (!this.loadedModel) return;
         
         // Clone the loaded model
         const modelClone = this.loadedModel.clone();
         
-        // Try to use hit test results if available
-        if (this.hitTestSource) {
-            const hitTestResults = frame.getHitTestResults(this.hitTestSource);
-            if (hitTestResults.length > 0) {
-                const hit = hitTestResults[0];
-                const pose = hit.getPose(session.referenceSpace);
-                modelClone.matrix.fromArray(pose.transform.matrix);
-                modelClone.matrix.decompose(modelClone.position, modelClone.quaternion, modelClone.scale);
-            } else {
-                // Fallback to reticle position
-                modelClone.position.setFromMatrixPosition(this.reticle.matrix);
-            }
+        // Place model 2 meters in front of user at eye level
+        const camera = this.renderer.xr.getCamera();
+        if (camera && camera.cameras && camera.cameras.length > 0) {
+            const xrCamera = camera.cameras[0];
+            const cameraPosition = new THREE.Vector3();
+            const cameraDirection = new THREE.Vector3();
+            
+            xrCamera.getWorldPosition(cameraPosition);
+            xrCamera.getWorldDirection(cameraDirection);
+            
+            // Place model 2 meters in front
+            const modelPosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
+            modelClone.position.copy(modelPosition);
         } else {
-            // No hit test available, use reticle position
-            modelClone.position.copy(this.reticle.position);
+            // Fallback positioning
+            modelClone.position.set(0, 0, -2);
         }
         
-        // Try to create an anchor if supported
-        if (session.createAnchor && this.hitTestSource) {
-            try {
-                const hitTestResults = frame.getHitTestResults(this.hitTestSource);
-                if (hitTestResults.length > 0) {
-                    const hit = hitTestResults[0];
-                    const anchorPose = hit.getPose(session.referenceSpace);
-                    
-                    // Create anchor at the hit location
-                    const anchor = await session.createAnchor(
-                        anchorPose.transform,
-                        session.referenceSpace
-                    );
-                    
-                    if (anchor) {
-                        this.anchors.push({
-                            anchor: anchor,
-                            model: modelClone
-                        });
-                        
-                        this.scene.add(modelClone);
-                        this.placedModels.push(modelClone);
-                        
-                        this.updateStatus(`Model placed with anchor! (${this.placedModels.length} total)`);
-                        console.log('Model placed with anchor successfully');
-                        return;
-                    }
-                }
-            } catch (error) {
-                console.warn('Anchor creation failed, placing without anchor:', error);
-            }
-        }
-        
-        // Fallback: place without anchor
+        // Add to scene
         this.scene.add(modelClone);
         this.placedModels.push(modelClone);
         this.updateStatus(`Model placed! (${this.placedModels.length} total) - Squeeze controllers to grab and move.`);
@@ -588,20 +461,19 @@ class XRApp {
     render(timestamp, frame) {
         if (frame) {
             const session = frame.session;
-            const referenceSpace = this.renderer.xr.getReferenceSpace();
             
-            // Handle controller input
+            // Handle controller input for grabbing models
             if (session.inputSources) {
                 for (let i = 0; i < session.inputSources.length; i++) {
                     const inputSource = session.inputSources[i];
                     
                     if (inputSource.gamepad) {
-                        // Check for Y/B button press (button index 3 for Y, 0 for A, 1 for B)
+                        // Check for Y button to snap model to front
                         if (inputSource.gamepad.buttons[3] && inputSource.gamepad.buttons[3].pressed) {
                             this.snapSelectedModelToFront();
                         }
                         
-                        // Handle squeeze for grabbing (button index 1 is usually squeeze)
+                        // Handle squeeze for grabbing
                         if (inputSource.gamepad.buttons[1] && inputSource.gamepad.buttons[1].pressed) {
                             if (!this.isGrabbing) {
                                 // Start grabbing
@@ -616,6 +488,7 @@ class XRApp {
                                         this.isGrabbing = true;
                                         this.grabOffset.copy(closestModel.position).sub(controllerPosition);
                                         this.selectedModel.scale.multiplyScalar(1.1);
+                                        this.updateStatus('Grabbed model! Move controller to reposition.');
                                     }
                                 }
                             } else if (this.selectedModel) {
@@ -636,6 +509,7 @@ class XRApp {
                             // Release grab when squeeze button is released
                             if (this.selectedModel) {
                                 this.selectedModel.scale.divideScalar(1.1);
+                                this.updateStatus('Model released. Tap trigger to place new models.');
                             }
                             this.isGrabbing = false;
                             this.selectedModel = null;
@@ -644,121 +518,25 @@ class XRApp {
                 }
             }
             
-            // Request hit test source if not already done and if supported
-            if (!this.hitTestSourceRequested) {
-                // Try different reference spaces in order of preference
-                const tryHitTestSetup = async () => {
-                    try {
-                        // First try with 'viewer' reference space
-                        const viewerSpace = await session.requestReferenceSpace('viewer');
-                        this.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
-                        console.log('Hit test source acquired with viewer space');
-                    } catch (error) {
-                        console.warn('Viewer space failed, trying local:', error);
-                        try {
-                            // Fallback to 'local' reference space
-                            const localSpace = await session.requestReferenceSpace('local');
-                            this.hitTestSource = await session.requestHitTestSource({ space: localSpace });
-                            console.log('Hit test source acquired with local space');
-                        } catch (error2) {
-                            console.warn('Local space failed, trying local-floor:', error2);
-                            try {
-                                // Final fallback to 'local-floor'
-                                const localFloorSpace = await session.requestReferenceSpace('local-floor');
-                                this.hitTestSource = await session.requestHitTestSource({ space: localFloorSpace });
-                                console.log('Hit test source acquired with local-floor space');
-                            } catch (error3) {
-                                console.warn('All hit test setups failed:', error3);
-                                // Hit test not supported - we'll use fallback reticle positioning
-                                this.hitTestSource = null;
-                            }
-                        }
-                    }
-                };
+            // Simple reticle positioning - no hit test needed
+            const camera = this.renderer.xr.getCamera();
+            if (camera && camera.cameras && camera.cameras.length > 0) {
+                const xrCamera = camera.cameras[0];
+                const cameraPosition = new THREE.Vector3();
+                const cameraDirection = new THREE.Vector3();
                 
-                tryHitTestSetup();
-                this.hitTestSourceRequested = true;
-            }
-            
-            // Perform hit test only if supported
-            if (this.hitTestSource) {
-                try {
-                    const hitTestResults = frame.getHitTestResults(this.hitTestSource);
-                    
-                    if (hitTestResults.length > 0) {
-                        const hit = hitTestResults[0];
-                        const pose = hit.getPose(referenceSpace);
-                        
-                        if (pose) {
-                            this.reticle.visible = true;
-                            this.reticle.matrix.fromArray(pose.transform.matrix);
-                            this.reticle.matrixAutoUpdate = false;
-                        } else {
-                            this.reticle.visible = false;
-                        }
-                    } else {
-                        this.reticle.visible = false;
-                    }
-                } catch (error) {
-                    console.warn('Error performing hit test:', error);
-                    this.reticle.visible = false;
-                }
+                xrCamera.getWorldPosition(cameraPosition);
+                xrCamera.getWorldDirection(cameraDirection);
+                
+                // Place reticle 2 meters in front of camera
+                const reticlePosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
+                this.reticle.position.copy(reticlePosition);
+                this.reticle.visible = true;
             } else {
-                // If hit test is not available, show reticle at a fixed position in front of user
-                try {
-                    const camera = this.renderer.xr.getCamera();
-                    if (camera && camera.cameras && camera.cameras.length > 0) {
-                        // Use the first camera from the camera array (for XR)
-                        const xrCamera = camera.cameras[0];
-                        const cameraPosition = new THREE.Vector3();
-                        const cameraDirection = new THREE.Vector3();
-                        
-                        xrCamera.getWorldPosition(cameraPosition);
-                        xrCamera.getWorldDirection(cameraDirection);
-                        
-                        // Place reticle 2 meters in front of camera, on the ground level
-                        const reticlePosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
-                        reticlePosition.y = cameraPosition.y - 1.5; // Assume floor is 1.5m below head
-                        
-                        this.reticle.position.copy(reticlePosition);
-                        this.reticle.visible = true;
-                    } else if (camera) {
-                        // Fallback to regular camera
-                        const cameraPosition = new THREE.Vector3();
-                        const cameraDirection = new THREE.Vector3();
-                        
-                        camera.getWorldPosition(cameraPosition);
-                        camera.getWorldDirection(cameraDirection);
-                        
-                        // Place reticle 2 meters in front of camera, on the ground level
-                        const reticlePosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
-                        reticlePosition.y = cameraPosition.y - 1.5; // Assume floor is 1.5m below head
-                        
-                        this.reticle.position.copy(reticlePosition);
-                        this.reticle.visible = true;
-                    } else {
-                        // Last resort: place reticle at a fixed position in front of origin
-                        this.reticle.position.set(0, -1, -2);
-                        this.reticle.visible = true;
-                    }
-                } catch (error) {
-                    console.warn('Error positioning fallback reticle:', error);
-                    // Emergency fallback: place reticle at origin
-                    this.reticle.position.set(0, -1, -2);
-                    this.reticle.visible = true;
-                }
+                // Fallback reticle position
+                this.reticle.position.set(0, 0, -2);
+                this.reticle.visible = true;
             }
-            
-            // Update anchored models
-            this.anchors.forEach(({ anchor, model }) => {
-                if (anchor && model) {
-                    const anchorPose = frame.getPose(anchor.anchorSpace, referenceSpace);
-                    if (anchorPose) {
-                        model.matrix.fromArray(anchorPose.transform.matrix);
-                        model.matrixAutoUpdate = false;
-                    }
-                }
-            });
         }
         
         this.renderer.render(this.scene, this.camera);
