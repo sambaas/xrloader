@@ -306,13 +306,7 @@ class XRApp {
             console.error('Error starting XR session:', error);
             let errorMessage = 'Failed to start AR session: ';
             
-            if (error.name === 'NotAllowedError') {
-                errorMessage += 'Permission denied. Please allow camera access.';
-            } else if (error.name === 'NotSupportedError') {
-                errorMessage += 'AR features not supported. Try using a different browser or device.';
-            } else {
-                errorMessage += error.message;
-            }
+            errorMessage += error.message;
             
             this.updateStatus(errorMessage);
         }
