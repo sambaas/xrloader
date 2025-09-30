@@ -17,6 +17,12 @@ class XRApp {
         this.reticle = null;
         this.isXRSupported = false;
         
+        // XR globals (following working example pattern)
+        this.xrSession = null;
+        this.xrRefSpace = null;
+        this.xrViewerSpace = null;
+        this.xrHitTestSource = null;
+        
         // Controller and interaction state
         this.controllers = [];
         this.controllerGrips = [];
@@ -257,19 +263,24 @@ class XRApp {
         try {
             this.updateStatus('Starting AR session...');
             
-            // Minimal AR session - no fancy features, just passthrough
-            const session = await navigator.xr.requestSession('immersive-ar');
+            // Use the working pattern from the WebXR samples
+            const session = await navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['local', 'hit-test']
+            });
             
             this.xrSession = session;
             await this.renderer.xr.setSession(session);
             
-            // Setup controllers
-            this.setupControllers();
-            
             session.addEventListener('end', () => this.onSessionEnd());
             session.addEventListener('select', (event) => this.onSelect(event));
             
-            this.updateStatus('AR Session started! Tap to place models. Squeeze controllers to grab and move.');
+            // Setup hit testing (following the working example)
+            this.setupHitTesting(session);
+            
+            // Setup controllers
+            this.setupControllers();
+            
+            this.updateStatus('AR Session started! Point at surfaces and tap to place models.');
             
         } catch (error) {
             console.error('Error starting XR session:', error);
@@ -277,8 +288,34 @@ class XRApp {
         }
     }
 
+    async setupHitTesting(session) {
+        // Get viewer space for hit testing
+        try {
+            this.xrViewerSpace = await session.requestReferenceSpace('viewer');
+            this.xrHitTestSource = await session.requestHitTestSource({ space: this.xrViewerSpace });
+            console.log('Hit test source created successfully');
+        } catch (error) {
+            console.warn('Hit test setup failed:', error);
+        }
+
+        // Get local reference space for rendering
+        try {
+            this.xrRefSpace = await session.requestReferenceSpace('local');
+            console.log('Local reference space acquired');
+        } catch (error) {
+            console.warn('Local reference space failed:', error);
+        }
+    }
+
     onSessionEnd() {
+        if (this.xrHitTestSource) {
+            this.xrHitTestSource.cancel();
+            this.xrHitTestSource = null;
+        }
+        
         this.xrSession = null;
+        this.xrRefSpace = null;
+        this.xrViewerSpace = null;
         this.reticle.visible = false;
         this.selectedModel = null;
         this.isGrabbing = false;
@@ -431,36 +468,48 @@ class XRApp {
     async onSelect(event) {
         if (!this.loadedModel) return;
         
-        // Clone the loaded model
-        const modelClone = this.loadedModel.clone();
-        
-        // Place model 2 meters in front of user at eye level
-        const camera = this.renderer.xr.getCamera();
-        if (camera && camera.cameras && camera.cameras.length > 0) {
-            const xrCamera = camera.cameras[0];
-            const cameraPosition = new THREE.Vector3();
-            const cameraDirection = new THREE.Vector3();
+        // Only place if reticle is visible (hit test successful)
+        if (this.reticle.visible) {
+            // Clone the loaded model
+            const modelClone = this.loadedModel.clone();
             
-            xrCamera.getWorldPosition(cameraPosition);
-            xrCamera.getWorldDirection(cameraDirection);
+            // Use reticle's matrix (which contains hit test result)
+            modelClone.matrix.fromArray(this.reticle.matrix.elements);
+            modelClone.matrix.decompose(modelClone.position, modelClone.quaternion, modelClone.scale);
             
-            // Place model 2 meters in front
-            const modelPosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
-            modelClone.position.copy(modelPosition);
+            // Add to scene
+            this.scene.add(modelClone);
+            this.placedModels.push(modelClone);
+            
+            this.updateStatus(`Model placed! (${this.placedModels.length} total) - Squeeze controllers to grab and move.`);
         } else {
-            // Fallback positioning
-            modelClone.position.set(0, 0, -2);
+            this.updateStatus('Point at a surface first!');
         }
-        
-        // Add to scene
-        this.scene.add(modelClone);
-        this.placedModels.push(modelClone);
-        this.updateStatus(`Model placed! (${this.placedModels.length} total) - Squeeze controllers to grab and move.`);
     }
 
     render(timestamp, frame) {
         if (frame) {
             const session = frame.session;
+            
+            // Handle hit testing (following working example pattern)
+            if (this.xrRefSpace) {
+                const pose = frame.getViewerPose(this.xrRefSpace);
+                
+                // Hide reticle by default
+                this.reticle.visible = false;
+                
+                // If we have hit test source and viewer pose, do hit testing
+                if (this.xrHitTestSource && pose) {
+                    const hitTestResults = frame.getHitTestResults(this.xrHitTestSource);
+                    if (hitTestResults.length > 0) {
+                        const hitPose = hitTestResults[0].getPose(this.xrRefSpace);
+                        if (hitPose) {
+                            this.reticle.visible = true;
+                            this.reticle.matrix.fromArray(hitPose.transform.matrix);
+                        }
+                    }
+                }
+            }
             
             // Handle controller input for grabbing models
             if (session.inputSources) {
@@ -516,26 +565,6 @@ class XRApp {
                         }
                     }
                 }
-            }
-            
-            // Simple reticle positioning - no hit test needed
-            const camera = this.renderer.xr.getCamera();
-            if (camera && camera.cameras && camera.cameras.length > 0) {
-                const xrCamera = camera.cameras[0];
-                const cameraPosition = new THREE.Vector3();
-                const cameraDirection = new THREE.Vector3();
-                
-                xrCamera.getWorldPosition(cameraPosition);
-                xrCamera.getWorldDirection(cameraDirection);
-                
-                // Place reticle 2 meters in front of camera
-                const reticlePosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
-                this.reticle.position.copy(reticlePosition);
-                this.reticle.visible = true;
-            } else {
-                // Fallback reticle position
-                this.reticle.position.set(0, 0, -2);
-                this.reticle.visible = true;
             }
         }
         
