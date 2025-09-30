@@ -30,9 +30,24 @@
             margin: 0 0 10px 0;
             font-size: 18px;
         }
-        #ui input[type="file"] {
+        #ui input[type="file"], #ui input[type="url"] {
             margin: 10px 0;
             color: white;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            padding: 8px;
+            width: calc(100% - 18px);
+        }
+        #ui input[type="radio"] {
+            margin: 5px 5px 5px 0;
+        }
+        .loading-option {
+            margin: 10px 0;
+        }
+        .loading-option label {
+            font-size: 14px;
+            margin-left: 5px;
         }
         #ui button {
             background: #4CAF50;
@@ -64,20 +79,41 @@
             margin-top: 10px;
             line-height: 1.4;
         }
+        .instructions code {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 4px;
+            border-radius: 2px;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
     <div id="ui">
         <h2>XR OBJ Loader</h2>
+        
+        <div class="loading-option">
+            <input type="radio" id="loadFromFile" name="loadMethod" value="file" checked>
+            <label for="loadFromFile">Load from file</label>
+        </div>
         <input type="file" id="objFile" accept=".obj" />
+        
+        <div class="loading-option">
+            <input type="radio" id="loadFromUrl" name="loadMethod" value="url">
+            <label for="loadFromUrl">Load from URL</label>
+        </div>
+        <input type="url" id="objUrl" placeholder="Enter OBJ file URL..." style="display: none;" />
+        
+        <button id="loadModel">Load Model</button>
         <button id="startXR" disabled>Start AR Session</button>
-        <div id="status">Ready to load model...</div>
+        <div id="status">Choose a loading method and load a model to begin...</div>
         <div class="instructions">
             <strong>Instructions:</strong><br>
-            1. Load an .obj file<br>
-            2. Start AR session<br>
-            3. Look at floor and tap to place model<br>
-            4. Model will be anchored to that position
+            1. Choose file or URL loading<br>
+            2. Load an .obj file<br>
+            3. Start AR session<br>
+            4. Look at floor and tap to place model<br>
+            5. Model will be anchored to that position<br><br>
+            <strong>Note:</strong> For URL loading, the server must support CORS. For local testing, try: <code>./example-cube.obj</code>
         </div>
     </div>
     <canvas id="canvas"></canvas>

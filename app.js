@@ -6,7 +6,11 @@ class XRApp {
         this.canvas = document.getElementById('canvas');
         this.statusDiv = document.getElementById('status');
         this.startXRButton = document.getElementById('startXR');
+        this.loadModelButton = document.getElementById('loadModel');
         this.objFileInput = document.getElementById('objFile');
+        this.objUrlInput = document.getElementById('objUrl');
+        this.loadFromFileRadio = document.getElementById('loadFromFile');
+        this.loadFromUrlRadio = document.getElementById('loadFromUrl');
         
         this.loadedModel = null;
         this.placedModels = [];
@@ -14,6 +18,7 @@ class XRApp {
         this.reticle = null;
         this.hitTestSource = null;
         this.hitTestSourceRequested = false;
+        this.isXRSupported = false;
         
         this.init();
     }
@@ -69,8 +74,12 @@ class XRApp {
     }
 
     setupEventListeners() {
-        // File input listener
-        this.objFileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+        // Load model button listener
+        this.loadModelButton.addEventListener('click', () => this.handleLoadModel());
+        
+        // Radio button listeners
+        this.loadFromFileRadio.addEventListener('change', () => this.toggleLoadMethod());
+        this.loadFromUrlRadio.addEventListener('change', () => this.toggleLoadMethod());
         
         // Start XR button listener
         this.startXRButton.addEventListener('click', () => this.startXRSession());
@@ -83,33 +92,105 @@ class XRApp {
         if ('xr' in navigator) {
             try {
                 const supported = await navigator.xr.isSessionSupported('immersive-ar');
+                this.isXRSupported = supported;
                 if (supported) {
-                    this.updateStatus('AR supported! Load a model to begin.');
+                    this.updateStartButtonState();
                 } else {
                     this.updateStatus('AR not supported on this device.');
                     this.startXRButton.disabled = true;
+                    this.startXRButton.textContent = 'AR Not Supported';
                 }
             } catch (error) {
                 console.error('Error checking XR support:', error);
                 this.updateStatus('Error checking AR support.');
+                this.startXRButton.disabled = true;
+                this.startXRButton.textContent = 'AR Error';
             }
         } else {
             this.updateStatus('WebXR not available in this browser.');
             this.startXRButton.disabled = true;
+            this.startXRButton.textContent = 'WebXR Not Available';
         }
     }
 
-    handleFileSelect(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        
-        this.updateStatus('Loading model...');
+    toggleLoadMethod() {
+        if (this.loadFromFileRadio.checked) {
+            this.objFileInput.style.display = 'block';
+            this.objUrlInput.style.display = 'none';
+        } else {
+            this.objFileInput.style.display = 'none';
+            this.objUrlInput.style.display = 'block';
+        }
+    }
+
+    updateStartButtonState() {
+        if (!this.isXRSupported) {
+            this.startXRButton.disabled = true;
+            this.startXRButton.textContent = 'AR Not Supported';
+        } else if (!this.loadedModel) {
+            this.startXRButton.disabled = true;
+            this.startXRButton.textContent = 'Load Model First';
+        } else {
+            this.startXRButton.disabled = false;
+            this.startXRButton.textContent = 'Start AR Session';
+        }
+    }
+
+    handleLoadModel() {
+        if (this.loadFromFileRadio.checked) {
+            const file = this.objFileInput.files[0];
+            if (!file) {
+                this.updateStatus('Please select a file first!');
+                return;
+            }
+            this.handleFileSelect(file);
+        } else {
+            const url = this.objUrlInput.value.trim();
+            if (!url) {
+                this.updateStatus('Please enter a URL first!');
+                return;
+            }
+            this.handleUrlLoad(url);
+        }
+    }
+
+    handleFileSelect(file) {
+        this.updateStatus('Loading model from file...');
         
         const reader = new FileReader();
         reader.onload = (e) => {
             this.loadOBJModel(e.target.result);
         };
+        reader.onerror = () => {
+            this.updateStatus('Error reading file.');
+        };
         reader.readAsText(file);
+    }
+
+    async handleUrlLoad(url) {
+        this.updateStatus('Loading model from URL...');
+        
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const objData = await response.text();
+            this.loadOBJModel(objData);
+            
+        } catch (error) {
+            console.error('Error loading OBJ from URL:', error);
+            let errorMessage = 'Error loading model from URL: ';
+            
+            if (error.name === 'TypeError') {
+                errorMessage += 'Network error or CORS issue. Make sure the URL is accessible.';
+            } else {
+                errorMessage += error.message;
+            }
+            
+            this.updateStatus(errorMessage);
+        }
     }
 
     loadOBJModel(objData) {
@@ -144,12 +225,12 @@ class XRApp {
             });
             
             this.loadedModel = object;
-            this.startXRButton.disabled = false;
-            this.updateStatus('Model loaded! Click "Start AR Session" to place it.');
+            this.updateStartButtonState();
+            this.updateStatus('Model loaded successfully! You can now start the AR session.');
             
         } catch (error) {
             console.error('Error loading OBJ model:', error);
-            this.updateStatus('Error loading model. Please check the file.');
+            this.updateStatus('Error loading model. Please check the file format.');
         }
     }
 
@@ -159,7 +240,14 @@ class XRApp {
             return;
         }
         
+        if (!this.isXRSupported) {
+            this.updateStatus('AR is not supported on this device!');
+            return;
+        }
+        
         try {
+            this.updateStatus('Starting AR session...');
+            
             const session = await navigator.xr.requestSession('immersive-ar', {
                 requiredFeatures: ['hit-test', 'anchors'],
                 optionalFeatures: ['dom-overlay'],
@@ -172,11 +260,21 @@ class XRApp {
             session.addEventListener('end', () => this.onSessionEnd());
             session.addEventListener('select', (event) => this.onSelect(event));
             
-            this.updateStatus('AR Session started! Tap to place the model.');
+            this.updateStatus('AR Session started! Point at a surface and tap to place the model.');
             
         } catch (error) {
             console.error('Error starting XR session:', error);
-            this.updateStatus('Failed to start AR session: ' + error.message);
+            let errorMessage = 'Failed to start AR session: ';
+            
+            if (error.name === 'NotAllowedError') {
+                errorMessage += 'Permission denied. Please allow camera access.';
+            } else if (error.name === 'NotSupportedError') {
+                errorMessage += 'Required AR features not supported.';
+            } else {
+                errorMessage += error.message;
+            }
+            
+            this.updateStatus(errorMessage);
         }
     }
 
