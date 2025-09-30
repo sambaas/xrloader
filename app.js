@@ -20,6 +20,14 @@ class XRApp {
         this.hitTestSourceRequested = false;
         this.isXRSupported = false;
         
+        // Controller and interaction state
+        this.controllers = [];
+        this.controllerGrips = [];
+        this.selectedModel = null;
+        this.isGrabbing = false;
+        this.grabOffset = new THREE.Vector3();
+        this.initialGrabDistance = 0;
+        
         this.init();
     }
 
@@ -253,24 +261,40 @@ class XRApp {
             try {
                 session = await navigator.xr.requestSession('immersive-ar', {
                     requiredFeatures: ['hit-test'],
-                    optionalFeatures: ['anchors', 'dom-overlay'],
+                    optionalFeatures: ['anchors', 'dom-overlay', 'hand-tracking'],
                     domOverlay: { root: document.getElementById('ui') }
                 });
             } catch (error) {
-                console.warn('Failed with anchors as optional, trying without anchors:', error);
-                // Fallback: try without anchors at all
-                session = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['hit-test'],
-                    optionalFeatures: ['dom-overlay'],
-                    domOverlay: { root: document.getElementById('ui') }
-                });
+                console.warn('Failed with hand-tracking, trying without:', error);
+                // Fallback: try without hand-tracking
+                try {
+                    session = await navigator.xr.requestSession('immersive-ar', {
+                        requiredFeatures: ['hit-test'],
+                        optionalFeatures: ['anchors', 'dom-overlay'],
+                        domOverlay: { root: document.getElementById('ui') }
+                    });
+                } catch (error2) {
+                    console.warn('Failed with anchors as optional, trying minimal features:', error2);
+                    // Final fallback: minimal features
+                    session = await navigator.xr.requestSession('immersive-ar', {
+                        requiredFeatures: ['hit-test'],
+                        optionalFeatures: ['dom-overlay'],
+                        domOverlay: { root: document.getElementById('ui') }
+                    });
+                }
             }
             
             this.xrSession = session;
             await this.renderer.xr.setSession(session);
             
+            // Setup controllers
+            this.setupControllers();
+            
             session.addEventListener('end', () => this.onSessionEnd());
             session.addEventListener('select', (event) => this.onSelect(event));
+            session.addEventListener('squeeze', (event) => this.onSqueeze(event));
+            session.addEventListener('squeezestart', (event) => this.onSqueezeStart(event));
+            session.addEventListener('squeezeend', (event) => this.onSqueezeEnd(event));
             
             // Check if anchors are actually supported
             const supportsAnchors = 'createAnchor' in session;
@@ -299,7 +323,208 @@ class XRApp {
         this.hitTestSource = null;
         this.hitTestSourceRequested = false;
         this.reticle.visible = false;
+        this.selectedModel = null;
+        this.isGrabbing = false;
+        
+        // Clean up controllers
+        this.controllers.forEach(controller => {
+            if (controller.parent) {
+                controller.parent.remove(controller);
+            }
+        });
+        this.controllerGrips.forEach(grip => {
+            if (grip.parent) {
+                grip.parent.remove(grip);
+            }
+        });
+        this.controllers = [];
+        this.controllerGrips = [];
+        
         this.updateStatus('AR Session ended.');
+    }
+
+    setupControllers() {
+        // Setup controller 0 (right hand)
+        const controller1 = this.renderer.xr.getController(0);
+        controller1.addEventListener('connected', (event) => {
+            console.log('Controller 0 connected:', event.data);
+        });
+        controller1.addEventListener('selectstart', () => this.onButtonPress(0, 'trigger'));
+        controller1.addEventListener('selectend', () => this.onButtonRelease(0, 'trigger'));
+        this.scene.add(controller1);
+        this.controllers.push(controller1);
+
+        // Setup controller 1 (left hand)
+        const controller2 = this.renderer.xr.getController(1);
+        controller2.addEventListener('connected', (event) => {
+            console.log('Controller 1 connected:', event.data);
+        });
+        controller2.addEventListener('selectstart', () => this.onButtonPress(1, 'trigger'));
+        controller2.addEventListener('selectend', () => this.onButtonRelease(1, 'trigger'));
+        this.scene.add(controller2);
+        this.controllers.push(controller2);
+
+        // Setup controller grips
+        const controllerGrip1 = this.renderer.xr.getControllerGrip(0);
+        this.scene.add(controllerGrip1);
+        this.controllerGrips.push(controllerGrip1);
+
+        const controllerGrip2 = this.renderer.xr.getControllerGrip(1);
+        this.scene.add(controllerGrip2);
+        this.controllerGrips.push(controllerGrip2);
+
+        // Add visual indicators for controllers
+        this.addControllerVisuals();
+    }
+
+    addControllerVisuals() {
+        // Add simple line pointers for controllers
+        const geometry = new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, 0, -1)
+        ]);
+        const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+
+        this.controllers.forEach(controller => {
+            const line = new THREE.Line(geometry, material);
+            controller.add(line);
+        });
+    }
+
+    findClosestModel(position, maxDistance = 1.0) {
+        let closestModel = null;
+        let closestDistance = maxDistance;
+
+        this.placedModels.forEach(model => {
+            const distance = position.distanceTo(model.position);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestModel = model;
+            }
+        });
+
+        return closestModel;
+    }
+
+    onSqueezeStart(event) {
+        const controller = this.controllers[event.data.handedness === 'right' ? 0 : 1];
+        if (!controller) return;
+
+        const controllerPosition = new THREE.Vector3();
+        controller.getWorldPosition(controllerPosition);
+
+        // Find closest model to grab
+        const closestModel = this.findClosestModel(controllerPosition, 0.5);
+        
+        if (closestModel) {
+            this.selectedModel = closestModel;
+            this.isGrabbing = true;
+            
+            // Calculate grab offset
+            this.grabOffset.copy(closestModel.position).sub(controllerPosition);
+            this.initialGrabDistance = controllerPosition.distanceTo(closestModel.position);
+            
+            // Visual feedback
+            this.selectedModel.scale.multiplyScalar(1.1);
+            this.updateStatus(`Grabbed model! Use squeeze to move, Y/B button to snap to front.`);
+            
+            console.log('Grabbed model at distance:', this.initialGrabDistance);
+        }
+    }
+
+    onSqueezeEnd(event) {
+        if (this.isGrabbing && this.selectedModel) {
+            // Reset visual feedback
+            this.selectedModel.scale.divideScalar(1.1);
+            this.updateStatus(`Model released. Tap to place new models or squeeze to grab again.`);
+        }
+        
+        this.isGrabbing = false;
+        this.selectedModel = null;
+    }
+
+    onSqueeze(event) {
+        // Handle continuous squeeze (movement)
+        if (this.isGrabbing && this.selectedModel) {
+            const controller = this.controllers[event.data.handedness === 'right' ? 0 : 1];
+            if (!controller) return;
+
+            const controllerPosition = new THREE.Vector3();
+            controller.getWorldPosition(controllerPosition);
+
+            // Move model with controller
+            this.selectedModel.position.copy(controllerPosition).add(this.grabOffset);
+            
+            // Optional: Add rotation based on controller orientation
+            const controllerQuaternion = new THREE.Quaternion();
+            controller.getWorldQuaternion(controllerQuaternion);
+            this.selectedModel.quaternion.copy(controllerQuaternion);
+        }
+    }
+
+    onButtonPress(controllerIndex, button) {
+        console.log(`Controller ${controllerIndex} ${button} pressed`);
+        
+        // Handle snap-to-front on trigger press when not grabbing
+        if (button === 'trigger' && !this.isGrabbing) {
+            this.snapSelectedModelToFront();
+        }
+    }
+
+    onButtonRelease(controllerIndex, button) {
+        console.log(`Controller ${controllerIndex} ${button} released`);
+    }
+
+    snapSelectedModelToFront() {
+        // If no model is selected, try to find the closest one
+        if (!this.selectedModel && this.placedModels.length > 0) {
+            // Get head position (camera position)
+            const headPosition = new THREE.Vector3();
+            this.camera.getWorldPosition(headPosition);
+            
+            this.selectedModel = this.findClosestModel(headPosition, 10.0) || this.placedModels[0];
+        }
+
+        if (this.selectedModel) {
+            // Get camera position and direction
+            const cameraPosition = new THREE.Vector3();
+            const cameraDirection = new THREE.Vector3();
+            
+            this.camera.getWorldPosition(cameraPosition);
+            this.camera.getWorldDirection(cameraDirection);
+            
+            // Place model 1.5 meters in front of camera
+            const targetPosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(1.5));
+            
+            // Animate movement to front
+            this.animateModelToPosition(this.selectedModel, targetPosition);
+            
+            this.updateStatus('Model snapped to front! Squeeze to grab and move it.');
+        } else {
+            this.updateStatus('No model to snap. Place a model first!');
+        }
+    }
+
+    animateModelToPosition(model, targetPosition) {
+        const startPosition = model.position.clone();
+        const startTime = performance.now();
+        const duration = 500; // 500ms animation
+
+        const animate = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Smooth easing
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+            
+            model.position.lerpVectors(startPosition, targetPosition, easeProgress);
+            
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            }
+        };
+        
+        requestAnimationFrame(animate);
     }
 
     async onSelect(event) {
@@ -355,6 +580,60 @@ class XRApp {
         if (frame) {
             const session = frame.session;
             const referenceSpace = this.renderer.xr.getReferenceSpace();
+            
+            // Handle controller input
+            if (session.inputSources) {
+                for (let i = 0; i < session.inputSources.length; i++) {
+                    const inputSource = session.inputSources[i];
+                    
+                    if (inputSource.gamepad) {
+                        // Check for Y/B button press (button index 3 for Y, 0 for A, 1 for B)
+                        if (inputSource.gamepad.buttons[3] && inputSource.gamepad.buttons[3].pressed) {
+                            this.snapSelectedModelToFront();
+                        }
+                        
+                        // Handle squeeze for grabbing (button index 1 is usually squeeze)
+                        if (inputSource.gamepad.buttons[1] && inputSource.gamepad.buttons[1].pressed) {
+                            if (!this.isGrabbing) {
+                                // Start grabbing
+                                const controller = this.controllers[i];
+                                if (controller) {
+                                    const controllerPosition = new THREE.Vector3();
+                                    controller.getWorldPosition(controllerPosition);
+                                    
+                                    const closestModel = this.findClosestModel(controllerPosition, 0.5);
+                                    if (closestModel) {
+                                        this.selectedModel = closestModel;
+                                        this.isGrabbing = true;
+                                        this.grabOffset.copy(closestModel.position).sub(controllerPosition);
+                                        this.selectedModel.scale.multiplyScalar(1.1);
+                                    }
+                                }
+                            } else if (this.selectedModel) {
+                                // Continue moving while squeezing
+                                const controller = this.controllers[i];
+                                if (controller) {
+                                    const controllerPosition = new THREE.Vector3();
+                                    controller.getWorldPosition(controllerPosition);
+                                    this.selectedModel.position.copy(controllerPosition).add(this.grabOffset);
+                                    
+                                    // Apply controller rotation
+                                    const controllerQuaternion = new THREE.Quaternion();
+                                    controller.getWorldQuaternion(controllerQuaternion);
+                                    this.selectedModel.quaternion.copy(controllerQuaternion);
+                                }
+                            }
+                        } else if (this.isGrabbing) {
+                            // Release grab when squeeze button is released
+                            if (this.selectedModel) {
+                                this.selectedModel.scale.divideScalar(1.1);
+                            }
+                            this.isGrabbing = false;
+                            this.selectedModel = null;
+                        }
+                    }
+                }
+            }
             
             // Request hit test source if not already done
             if (!this.hitTestSourceRequested) {
