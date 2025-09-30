@@ -20,6 +20,24 @@ A WebXR application that allows you to load .obj 3D models and place them in you
 
 ### Quick Start
 
+#### Option 1: Use GitHub Pages (Recommended)
+
+Access the app directly at: **https://sambaas.github.io/xrloader/**
+
+1. **Access on Quest 3**: 
+   - Open the Meta Quest Browser
+   - Navigate to `https://sambaas.github.io/xrloader/`
+
+2. **Load and Place Models**:
+   - Tap "Choose File" and select an .obj model from your device
+   - Wait for the model to load
+   - Tap "Start AR Session"
+   - Look at your floor or any surface
+   - When you see the green ring indicator, tap to place the model
+   - The model will be anchored to that position
+
+#### Option 2: Host Locally
+
 1. **Host the Application**: Serve the files over HTTPS (required for WebXR)
    ```bash
    # Using Python 3
@@ -39,12 +57,7 @@ A WebXR application that allows you to load .obj 3D models and place them in you
    - Navigate to your hosted URL (e.g., `https://your-url.ngrok.io`)
 
 3. **Load and Place Models**:
-   - Tap "Choose File" and select an .obj model from your device
-   - Wait for the model to load
-   - Tap "Start AR Session"
-   - Look at your floor or any surface
-   - When you see the green ring indicator, tap to place the model
-   - The model will be anchored to that position
+   - Same steps as Option 1
 
 ## How It Works
 
@@ -123,6 +136,23 @@ For local development on Quest 3:
 1. Enable Developer Mode on your Quest 3
 2. Use HTTPS (required for WebXR)
 3. Connect via local network or use ngrok/similar tunneling service
+
+### Deploying to GitHub Pages
+
+This application is deployed using GitHub Pages for easy access:
+
+1. **Enable GitHub Pages** in your repository settings:
+   - Go to repository Settings → Pages
+   - Set Source to "Deploy from a branch"
+   - Select branch: `main` (or your default branch)
+   - Select folder: `/ (root)`
+   - Click Save
+
+2. **Access your deployment**:
+   - The app will be available at: `https://[username].github.io/[repository-name]/`
+   - For this repo: `https://sambaas.github.io/xrloader/`
+
+3. **HTTPS requirement**: GitHub Pages automatically provides HTTPS, which is required for WebXR APIs.
 
 ### Extending the Application
 
