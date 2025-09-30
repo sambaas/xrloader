@@ -1,0 +1,21 @@
+{
+  "name": "xrloader",
+  "version": "1.0.0",
+  "description": "WebXR app for loading .obj models and placing them in AR with passthrough on Meta Quest 3",
+  "main": "app.js",
+  "scripts": {
+    "serve": "npx http-server -p 8000 -c-1",
+    "dev": "npx http-server -p 8000 -c-1 -o"
+  },
+  "keywords": [
+    "webxr",
+    "ar",
+    "obj",
+    "3d",
+    "meta-quest",
+    "anchors"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module"
+}
