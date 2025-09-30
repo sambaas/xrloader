@@ -74,9 +74,14 @@ class XRApp {
 
     createReticle() {
         const geometry = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
-        const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+        const material = new THREE.MeshBasicMaterial({ 
+            color: 0x00ff00,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.8
+        });
         this.reticle = new THREE.Mesh(geometry, material);
-        this.reticle.matrixAutoUpdate = false;
+        this.reticle.matrixAutoUpdate = true; // Allow automatic matrix updates for fallback positioning
         this.reticle.visible = false;
         this.scene.add(this.reticle);
     }
@@ -641,48 +646,105 @@ class XRApp {
             
             // Request hit test source if not already done and if supported
             if (!this.hitTestSourceRequested) {
-                session.requestReferenceSpace('viewer').then((viewerSpace) => {
-                    session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-                        this.hitTestSource = source;
-                        console.log('Hit test source acquired');
-                    }).catch(error => {
-                        console.warn('Hit test not supported:', error);
-                        // Hit test not supported - we can still place models manually
-                    });
-                }).catch(error => {
-                    console.warn('Viewer reference space not supported:', error);
-                });
+                // Try different reference spaces in order of preference
+                const tryHitTestSetup = async () => {
+                    try {
+                        // First try with 'viewer' reference space
+                        const viewerSpace = await session.requestReferenceSpace('viewer');
+                        this.hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+                        console.log('Hit test source acquired with viewer space');
+                    } catch (error) {
+                        console.warn('Viewer space failed, trying local:', error);
+                        try {
+                            // Fallback to 'local' reference space
+                            const localSpace = await session.requestReferenceSpace('local');
+                            this.hitTestSource = await session.requestHitTestSource({ space: localSpace });
+                            console.log('Hit test source acquired with local space');
+                        } catch (error2) {
+                            console.warn('Local space failed, trying local-floor:', error2);
+                            try {
+                                // Final fallback to 'local-floor'
+                                const localFloorSpace = await session.requestReferenceSpace('local-floor');
+                                this.hitTestSource = await session.requestHitTestSource({ space: localFloorSpace });
+                                console.log('Hit test source acquired with local-floor space');
+                            } catch (error3) {
+                                console.warn('All hit test setups failed:', error3);
+                                // Hit test not supported - we'll use fallback reticle positioning
+                                this.hitTestSource = null;
+                            }
+                        }
+                    }
+                };
+                
+                tryHitTestSetup();
                 this.hitTestSourceRequested = true;
             }
             
             // Perform hit test only if supported
             if (this.hitTestSource) {
-                const hitTestResults = frame.getHitTestResults(this.hitTestSource);
-                
-                if (hitTestResults.length > 0) {
-                    const hit = hitTestResults[0];
-                    const pose = hit.getPose(referenceSpace);
+                try {
+                    const hitTestResults = frame.getHitTestResults(this.hitTestSource);
                     
-                    this.reticle.visible = true;
-                    this.reticle.matrix.fromArray(pose.transform.matrix);
-                } else {
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        const pose = hit.getPose(referenceSpace);
+                        
+                        if (pose) {
+                            this.reticle.visible = true;
+                            this.reticle.matrix.fromArray(pose.transform.matrix);
+                            this.reticle.matrixAutoUpdate = false;
+                        } else {
+                            this.reticle.visible = false;
+                        }
+                    } else {
+                        this.reticle.visible = false;
+                    }
+                } catch (error) {
+                    console.warn('Error performing hit test:', error);
                     this.reticle.visible = false;
                 }
             } else {
                 // If hit test is not available, show reticle at a fixed position in front of user
-                const camera = this.renderer.xr.getCamera();
-                if (camera) {
-                    const cameraPosition = new THREE.Vector3();
-                    const cameraDirection = new THREE.Vector3();
-                    
-                    camera.getWorldPosition(cameraPosition);
-                    camera.getWorldDirection(cameraDirection);
-                    
-                    // Place reticle 2 meters in front of camera, on the ground level
-                    const reticlePosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
-                    reticlePosition.y = cameraPosition.y - 1.5; // Assume floor is 1.5m below head
-                    
-                    this.reticle.position.copy(reticlePosition);
+                try {
+                    const camera = this.renderer.xr.getCamera();
+                    if (camera && camera.cameras && camera.cameras.length > 0) {
+                        // Use the first camera from the camera array (for XR)
+                        const xrCamera = camera.cameras[0];
+                        const cameraPosition = new THREE.Vector3();
+                        const cameraDirection = new THREE.Vector3();
+                        
+                        xrCamera.getWorldPosition(cameraPosition);
+                        xrCamera.getWorldDirection(cameraDirection);
+                        
+                        // Place reticle 2 meters in front of camera, on the ground level
+                        const reticlePosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
+                        reticlePosition.y = cameraPosition.y - 1.5; // Assume floor is 1.5m below head
+                        
+                        this.reticle.position.copy(reticlePosition);
+                        this.reticle.visible = true;
+                    } else if (camera) {
+                        // Fallback to regular camera
+                        const cameraPosition = new THREE.Vector3();
+                        const cameraDirection = new THREE.Vector3();
+                        
+                        camera.getWorldPosition(cameraPosition);
+                        camera.getWorldDirection(cameraDirection);
+                        
+                        // Place reticle 2 meters in front of camera, on the ground level
+                        const reticlePosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
+                        reticlePosition.y = cameraPosition.y - 1.5; // Assume floor is 1.5m below head
+                        
+                        this.reticle.position.copy(reticlePosition);
+                        this.reticle.visible = true;
+                    } else {
+                        // Last resort: place reticle at a fixed position in front of origin
+                        this.reticle.position.set(0, -1, -2);
+                        this.reticle.visible = true;
+                    }
+                } catch (error) {
+                    console.warn('Error positioning fallback reticle:', error);
+                    // Emergency fallback: place reticle at origin
+                    this.reticle.position.set(0, -1, -2);
                     this.reticle.visible = true;
                 }
             }
