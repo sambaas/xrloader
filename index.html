@@ -1,134 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>XR OBJ Loader</title>
-    <script type="importmap">
-    {
-        "imports": {
-            "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
-        }
-    }
-    </script>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            font-family: Arial, sans-serif;
-        }
-        #canvas {
-            display: block;
-            width: 100%;
-            height: 100%;
-        }
-        #ui {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            z-index: 1000;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            max-width: 300px;
-        }
-        #ui h2 {
-            margin: 0 0 10px 0;
-            font-size: 18px;
-        }
-        #ui input[type="file"], #ui input[type="url"] {
-            margin: 10px 0;
-            color: white;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 4px;
-            padding: 8px;
-            width: calc(100% - 18px);
-        }
-        #ui input[type="radio"] {
-            margin: 5px 5px 5px 0;
-        }
-        .loading-option {
-            margin: 10px 0;
-        }
-        .loading-option label {
-            font-size: 14px;
-            margin-left: 5px;
-        }
-        #ui button {
-            background: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            margin: 5px 0;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            width: 100%;
-        }
-        #ui button:hover {
-            background: #45a049;
-        }
-        #ui button:disabled {
-            background: #cccccc;
-            cursor: not-allowed;
-        }
-        #status {
-            margin-top: 10px;
-            font-size: 12px;
-            padding: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-        }
-        .instructions {
-            font-size: 11px;
-            margin-top: 10px;
-            line-height: 1.4;
-        }
-        .instructions code {
-            background: rgba(255, 255, 255, 0.2);
-            padding: 2px 4px;
-            border-radius: 2px;
-            font-family: monospace;
-        }
-    </style>
-</head>
-<body>
-    <div id="ui">
-        <h2>XR OBJ Loader</h2>
-        
-        <div class="loading-option">
-            <input type="radio" id="loadFromFile" name="loadMethod" value="file" checked>
-            <label for="loadFromFile">Load from file</label>
-        </div>
-        <input type="file" id="objFile" accept=".obj" />
-        
-        <div class="loading-option">
-            <input type="radio" id="loadFromUrl" name="loadMethod" value="url">
-            <label for="loadFromUrl">Load from URL</label>
-        </div>
-        <input type="url" id="objUrl" placeholder="Enter OBJ file URL..." style="display: none;" />
-        
-        <button id="loadModel">Load Model</button>
-        <button id="startXR" disabled>Start AR Session</button>
-        <div id="status">Choose a loading method and load a model to begin...</div>
-        <div class="instructions">
-            <strong>Instructions:</strong><br>
-            1. Choose file or URL loading<br>
-            2. Load an .obj file<br>
-            3. Start AR session<br>
-            4. Look at floor and tap to place model<br>
-            5. <strong>Controller Controls:</strong><br>
-            &nbsp;&nbsp;• Squeeze grip to grab and move models<br>
-            &nbsp;&nbsp;• Y button to snap model in front of you<br>
-            &nbsp;&nbsp;• Trigger to place new models<br><br>
-            <strong>Note:</strong> For URL loading, the server must support CORS. For local testing, try: <code>./example-cube.obj</code>
-        </div>
-    </div>
-    <canvas id="canvas"></canvas>
-
-    <script type="module" src="app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>three.js bare example</title>
+    <style></style>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <button>Start AR</button>
+    <script src="./index.js"></script>
+  </body>
 </html>
