@@ -256,32 +256,21 @@ class XRApp {
         try {
             this.updateStatus('Starting AR session...');
             
-            // Try with both required features first
+            // Try with minimal features first - Quest 3 is very picky about required features
             let session;
             try {
+                // First attempt: Try with no required features, everything optional
                 session = await navigator.xr.requestSession('immersive-ar', {
-                    requiredFeatures: ['hit-test'],
-                    optionalFeatures: ['anchors', 'dom-overlay', 'hand-tracking'],
+                    optionalFeatures: ['hit-test', 'anchors', 'dom-overlay', 'hand-tracking'],
                     domOverlay: { root: document.getElementById('ui') }
                 });
             } catch (error) {
-                console.warn('Failed with hand-tracking, trying without:', error);
-                // Fallback: try without hand-tracking
-                try {
-                    session = await navigator.xr.requestSession('immersive-ar', {
-                        requiredFeatures: ['hit-test'],
-                        optionalFeatures: ['anchors', 'dom-overlay'],
-                        domOverlay: { root: document.getElementById('ui') }
-                    });
-                } catch (error2) {
-                    console.warn('Failed with anchors as optional, trying minimal features:', error2);
-                    // Final fallback: minimal features
-                    session = await navigator.xr.requestSession('immersive-ar', {
-                        requiredFeatures: ['hit-test'],
-                        optionalFeatures: ['dom-overlay'],
-                        domOverlay: { root: document.getElementById('ui') }
-                    });
-                }
+                console.warn('Failed with all optional features, trying minimal:', error);
+                // Fallback: absolute minimal AR session
+                session = await navigator.xr.requestSession('immersive-ar', {
+                    optionalFeatures: ['dom-overlay'],
+                    domOverlay: { root: document.getElementById('ui') }
+                });
             }
             
             this.xrSession = session;
@@ -296,11 +285,16 @@ class XRApp {
             session.addEventListener('squeezestart', (event) => this.onSqueezeStart(event));
             session.addEventListener('squeezeend', (event) => this.onSqueezeEnd(event));
             
-            // Check if anchors are actually supported
+            // Check which features are actually supported
             const supportsAnchors = 'createAnchor' in session;
-            const anchorStatus = supportsAnchors ? 'with anchor support' : 'without anchor support';
+            const supportsHitTest = this.hitTestSource !== null;
             
-            this.updateStatus(`AR Session started ${anchorStatus}! Point at a surface and tap to place the model.`);
+            let statusMessage = 'AR Session started!';
+            if (supportsAnchors) statusMessage += ' (Anchors supported)';
+            if (supportsHitTest) statusMessage += ' (Hit-test supported)';
+            statusMessage += ' Point at a surface and tap to place models.';
+            
+            this.updateStatus(statusMessage);
             
         } catch (error) {
             console.error('Error starting XR session:', error);
@@ -529,10 +523,26 @@ class XRApp {
         
         // Clone the loaded model
         const modelClone = this.loadedModel.clone();
-        modelClone.position.setFromMatrixPosition(this.reticle.matrix);
+        
+        // Try to use hit test results if available
+        if (this.hitTestSource) {
+            const hitTestResults = frame.getHitTestResults(this.hitTestSource);
+            if (hitTestResults.length > 0) {
+                const hit = hitTestResults[0];
+                const pose = hit.getPose(session.referenceSpace);
+                modelClone.matrix.fromArray(pose.transform.matrix);
+                modelClone.matrix.decompose(modelClone.position, modelClone.quaternion, modelClone.scale);
+            } else {
+                // Fallback to reticle position
+                modelClone.position.setFromMatrixPosition(this.reticle.matrix);
+            }
+        } else {
+            // No hit test available, use reticle position
+            modelClone.position.copy(this.reticle.position);
+        }
         
         // Try to create an anchor if supported
-        if (this.reticle.visible && session.createAnchor) {
+        if (session.createAnchor && this.hitTestSource) {
             try {
                 const hitTestResults = frame.getHitTestResults(this.hitTestSource);
                 if (hitTestResults.length > 0) {
@@ -567,7 +577,7 @@ class XRApp {
         // Fallback: place without anchor
         this.scene.add(modelClone);
         this.placedModels.push(modelClone);
-        this.updateStatus(`Model placed! (${this.placedModels.length} total)`);
+        this.updateStatus(`Model placed! (${this.placedModels.length} total) - Squeeze controllers to grab and move.`);
     }
 
     render(timestamp, frame) {
@@ -629,17 +639,23 @@ class XRApp {
                 }
             }
             
-            // Request hit test source if not already done
+            // Request hit test source if not already done and if supported
             if (!this.hitTestSourceRequested) {
                 session.requestReferenceSpace('viewer').then((viewerSpace) => {
                     session.requestHitTestSource({ space: viewerSpace }).then((source) => {
                         this.hitTestSource = source;
+                        console.log('Hit test source acquired');
+                    }).catch(error => {
+                        console.warn('Hit test not supported:', error);
+                        // Hit test not supported - we can still place models manually
                     });
+                }).catch(error => {
+                    console.warn('Viewer reference space not supported:', error);
                 });
                 this.hitTestSourceRequested = true;
             }
             
-            // Perform hit test
+            // Perform hit test only if supported
             if (this.hitTestSource) {
                 const hitTestResults = frame.getHitTestResults(this.hitTestSource);
                 
@@ -651,6 +667,23 @@ class XRApp {
                     this.reticle.matrix.fromArray(pose.transform.matrix);
                 } else {
                     this.reticle.visible = false;
+                }
+            } else {
+                // If hit test is not available, show reticle at a fixed position in front of user
+                const camera = this.renderer.xr.getCamera();
+                if (camera) {
+                    const cameraPosition = new THREE.Vector3();
+                    const cameraDirection = new THREE.Vector3();
+                    
+                    camera.getWorldPosition(cameraPosition);
+                    camera.getWorldDirection(cameraDirection);
+                    
+                    // Place reticle 2 meters in front of camera, on the ground level
+                    const reticlePosition = cameraPosition.clone().add(cameraDirection.multiplyScalar(2));
+                    reticlePosition.y = cameraPosition.y - 1.5; // Assume floor is 1.5m below head
+                    
+                    this.reticle.position.copy(reticlePosition);
+                    this.reticle.visible = true;
                 }
             }
             
