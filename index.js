@@ -7,9 +7,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { TubePainter } from "three/examples/jsm/misc/TubePainter.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+
 // Import assets so Parcel includes them in the build
 import closetObjUrl from "./assets/closet.obj";
-import exampleCubeObjUrl from "./assets/example-cube.obj";
 
 // =====================================
 // GLOBAL VARIABLES
@@ -43,6 +43,7 @@ let initialControllerAngle = 0;
 let currentTool = 0; // 0 = painter, 1 = measurement
 const tools = ['Painter', 'Measurement'];
 let thumbstickCooldown = 0;
+let buttonCooldown = 0;
 let toolIndicatorMesh = null;
 
 // Measurement tool variables
@@ -650,6 +651,45 @@ function getTipPosition(controller) {
   return tipPosition;
 }
 
+function findClosestMeasurementLine(controllerPosition) {
+  if (measurementLines.length === 0) return null;
+  
+  let closestLine = null;
+  let closestDistance = Infinity;
+  
+  for (let measurementLine of measurementLines) {
+    const { startPoint, endPoint } = measurementLine.userData;
+    
+    // Calculate distance from controller to the line
+    // Use the midpoint of the line for simplicity
+    const midpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
+    const distance = controllerPosition.distanceTo(midpoint);
+    
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestLine = measurementLine;
+    }
+  }
+  
+  return closestLine;
+}
+
+function removeMeasurementLine(measurementLine) {
+  if (!measurementLine) return false;
+  
+  // Remove from scene
+  scene.remove(measurementLine);
+  
+  // Remove from measurementLines array
+  const index = measurementLines.indexOf(measurementLine);
+  if (index > -1) {
+    measurementLines.splice(index, 1);
+  }
+  
+  console.log('Removed measurement line');
+  return true;
+}
+
 function updateMeasurementPreview(controller) {
   if (!measurementStartPoint || !controller) return;
   
@@ -860,6 +900,35 @@ function handleToolSwitching() {
   }
 }
 
+function handleMeasurementDeletion() {
+  if (!currentSession || buttonCooldown > 0) return;
+  
+  // Check B button on both controllers
+  for (let i = 0; i < inputSources.length; i++) {
+    const inputSource = inputSources[i];
+    if (inputSource.gamepad) {
+      const gamepad = inputSource.gamepad;
+      
+      // Check if B button is pressed (button index 1)
+      if (gamepad.buttons.length > 1 && gamepad.buttons[1].pressed) {
+        // Get controller position
+        const controller = inputSource.handedness === 'left' ? controller1 : controller2;
+        if (controller) {
+          const controllerPosition = new THREE.Vector3();
+          controller.getWorldPosition(controllerPosition);
+          
+          // Find and remove closest measurement line
+          const closestLine = findClosestMeasurementLine(controllerPosition);
+          if (removeMeasurementLine(closestLine)) {
+            buttonCooldown = 0.5; // 500ms cooldown
+          }
+        }
+        break;
+      }
+    }
+  }
+}
+
 function handleMeasurementStart() {
   if (!measurementStartPoint) {
     // First click - set start point from tip position
@@ -948,6 +1017,9 @@ function render() {
   if (thumbstickCooldown > 0) {
     thumbstickCooldown -= 0.016; // Approximately 60 FPS
   }
+  if (buttonCooldown > 0) {
+    buttonCooldown -= 0.016; // Approximately 60 FPS
+  }
   
   // Make tool indicator face the camera
   if (toolIndicatorMesh && toolIndicatorMesh.visible && camera) {
@@ -973,6 +1045,9 @@ function render() {
   
   // Handle tool switching with right thumbstick
   handleToolSwitching();
+  
+  // Handle measurement deletion with B button
+  handleMeasurementDeletion();
 
   renderer.render(scene, camera);
 }
