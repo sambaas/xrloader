@@ -536,11 +536,8 @@ function endPaintGroup(controller) {
     scene.add(paintGroup);
     paintGroups.push(paintGroup);
     
-    // Clear the painter's mesh for the next stroke
-    painter.mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
-    painter.mesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-    painter.mesh.geometry.attributes.position.needsUpdate = true;
-    painter.mesh.geometry.attributes.color.needsUpdate = true;
+    // Reset the painter for the next stroke instead of clearing geometry
+    painter.reset();
   }
   
   // Remove from active groups
