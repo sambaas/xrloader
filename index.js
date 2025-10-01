@@ -523,11 +523,13 @@ function endPaintGroup(controller) {
   
   // Clone the current painter mesh and add it to our group
   if (painter.mesh && painter.mesh.geometry && painter.mesh.geometry.attributes.position) {
-    const paintMesh = painter.mesh.clone();
+    // First, create a complete copy of the current geometry BEFORE disposing
+    const originalGeometry = painter.mesh.geometry;
+    const clonedGeometry = originalGeometry.clone();
     
-    // Create a unique geometry for this paint group by copying current state
-    const geometry = painter.mesh.geometry.clone();
-    paintMesh.geometry = geometry;
+    // Create the paint mesh with the cloned geometry
+    const paintMesh = painter.mesh.clone();
+    paintMesh.geometry = clonedGeometry;
     
     // Add the paint mesh to our group
     paintGroup.add(paintMesh);
@@ -536,21 +538,21 @@ function endPaintGroup(controller) {
     scene.add(paintGroup);
     paintGroups.push(paintGroup);
     
-    // Properly reset the painter for the next stroke
-    // Create new empty geometry instead of using reset()
+    // NOW we can safely dispose and reset the painter's geometry
+    originalGeometry.dispose(); // Clean up old geometry
+    
+    // Create new empty geometry for the painter
     const newGeometry = new THREE.BufferGeometry();
     newGeometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
     newGeometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-    
-    painter.mesh.geometry.dispose(); // Clean up old geometry
     painter.mesh.geometry = newGeometry;
     
-    // Reset internal state
-    painter.count = 0;
-    painter.vector1 = new THREE.Vector3();
-    painter.vector2 = new THREE.Vector3();
-    painter.vector3 = new THREE.Vector3();
-    painter.vector4 = new THREE.Vector3();
+    // Reset internal state if these properties exist
+    if (typeof painter.count !== 'undefined') painter.count = 0;
+    if (painter.vector1) painter.vector1 = new THREE.Vector3();
+    if (painter.vector2) painter.vector2 = new THREE.Vector3();
+    if (painter.vector3) painter.vector3 = new THREE.Vector3();
+    if (painter.vector4) painter.vector4 = new THREE.Vector3();
   }
   
   // Remove from active groups
