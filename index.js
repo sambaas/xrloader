@@ -5,8 +5,147 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { TubePainter } from "three/examples/jsm/misc/TubePainter.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+
+// Custom lightweight painter implementation
+class CustomPainter {
+  constructor() {
+    this.mesh = null;
+    this.geometry = null;
+    this.material = null;
+    this.positions = [];
+    this.colors = [];
+    this.size = 0.01;
+    this.color = new THREE.Color(0.5, 0.5, 1);
+    this.isDrawing = false;
+    this.lastPosition = new THREE.Vector3();
+    this.segmentLength = 0.005; // Minimum distance between points
+    
+    this.init();
+  }
+  
+  init() {
+    // Create geometry with initial capacity
+    this.geometry = new THREE.BufferGeometry();
+    
+    // Create material
+    this.material = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+    
+    // Create mesh
+    this.mesh = new THREE.Mesh(this.geometry, this.material);
+    
+    // Initialize empty buffers
+    this.updateGeometry();
+  }
+  
+  setSize(size) {
+    this.size = size;
+  }
+  
+  setColor(color) {
+    if (color instanceof THREE.Color) {
+      this.color.copy(color);
+    } else {
+      this.color.setHex(color);
+    }
+  }
+  
+  moveTo(position) {
+    this.lastPosition.copy(position);
+    this.isDrawing = false;
+  }
+  
+  lineTo(position) {
+    if (!this.isDrawing) {
+      this.isDrawing = true;
+      this.addPoint(this.lastPosition);
+    }
+    
+    // Only add point if we've moved enough distance
+    const distance = position.distanceTo(this.lastPosition);
+    if (distance > this.segmentLength) {
+      this.addPoint(position);
+      this.lastPosition.copy(position);
+    }
+  }
+  
+  addPoint(position) {
+    const segments = 8; // Number of segments around the tube
+    const radius = this.size;
+    
+    // Generate points around the tube circumference
+    for (let i = 0; i < segments; i++) {
+      const angle = (i / segments) * Math.PI * 2;
+      const x = position.x + Math.cos(angle) * radius;
+      const y = position.y + Math.sin(angle) * radius;
+      const z = position.z;
+      
+      this.positions.push(x, y, z);
+      this.colors.push(this.color.r, this.color.g, this.color.b);
+    }
+  }
+  
+  update() {
+    this.updateGeometry();
+  }
+  
+  updateGeometry() {
+    if (this.positions.length === 0) {
+      // Create minimal empty geometry
+      this.geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+      this.geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+      this.geometry.setDrawRange(0, 0);
+      return;
+    }
+    
+    // Update position attribute
+    this.geometry.setAttribute('position', new THREE.Float32BufferAttribute(this.positions, 3));
+    this.geometry.setAttribute('color', new THREE.Float32BufferAttribute(this.colors, 3));
+    
+    // Generate indices for triangle strips
+    const indices = [];
+    const pointsPerRing = 8;
+    const rings = Math.floor(this.positions.length / (pointsPerRing * 3));
+    
+    for (let ring = 0; ring < rings - 1; ring++) {
+      for (let i = 0; i < pointsPerRing; i++) {
+        const current = ring * pointsPerRing + i;
+        const next = ring * pointsPerRing + ((i + 1) % pointsPerRing);
+        const nextRing = (ring + 1) * pointsPerRing + i;
+        const nextRingNext = (ring + 1) * pointsPerRing + ((i + 1) % pointsPerRing);
+        
+        // Two triangles per segment
+        indices.push(current, next, nextRing);
+        indices.push(next, nextRingNext, nextRing);
+      }
+    }
+    
+    this.geometry.setIndex(indices);
+    this.geometry.computeVertexNormals();
+    this.geometry.attributes.position.needsUpdate = true;
+    this.geometry.attributes.color.needsUpdate = true;
+  }
+  
+  reset() {
+    this.positions = [];
+    this.colors = [];
+    this.isDrawing = false;
+    this.updateGeometry();
+  }
+  
+  dispose() {
+    if (this.geometry) {
+      this.geometry.dispose();
+    }
+    if (this.material) {
+      this.material.dispose();
+    }
+  }
+}
 
 // Import assets so Parcel includes them in the build
 import closetObjUrl from "./assets/closet.obj";
@@ -177,10 +316,10 @@ function init() {
   modelPlacementIndicator.visible = false;
   scene.add(modelPlacementIndicator);
 
-  const painter1 = new TubePainter();
+  const painter1 = new CustomPainter();
   scene.add(painter1.mesh);
 
-  const painter2 = new TubePainter();
+  const painter2 = new CustomPainter();
   scene.add(painter2.mesh);
 
   // Note: Need alpha enabled for passthrough
@@ -522,9 +661,9 @@ function endPaintGroup(controller) {
   const painter = paintGroup.userData.painter;
   
   // Clone the current painter mesh and add it to our group
-  if (painter.mesh && painter.mesh.geometry && painter.mesh.geometry.attributes.position) {
+  if (painter.mesh && painter.positions.length > 0) {
     // Create a complete copy of the current geometry for the paint group
-    const clonedGeometry = painter.mesh.geometry.clone();
+    const clonedGeometry = painter.geometry.clone();
     const paintMesh = painter.mesh.clone();
     paintMesh.geometry = clonedGeometry;
     
@@ -535,33 +674,8 @@ function endPaintGroup(controller) {
     scene.add(paintGroup);
     paintGroups.push(paintGroup);
     
-    // Now we need to properly reset the TubePainter for new strokes
-    // The key insight is that TubePainter maintains internal state that we need to reset
-    
-    // Reset the internal count
-    painter.count = 0;
-    
-    // Reset the position vectors that TubePainter uses internally
-    if (painter.vector1) painter.vector1.set(0, 0, 0);
-    if (painter.vector2) painter.vector2.set(0, 0, 0);
-    if (painter.vector3) painter.vector3.set(0, 0, 0);
-    if (painter.vector4) painter.vector4.set(0, 0, 0);
-    
-    // Create a completely new geometry for the painter
-    const newGeometry = new THREE.BufferGeometry();
-    
-    // Initialize empty arrays for the maximum number of vertices TubePainter might use
-    const maxVertices = 1000000; // Large enough buffer
-    const positions = new Float32Array(maxVertices * 3);
-    const colors = new Float32Array(maxVertices * 3);
-    
-    newGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    newGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    newGeometry.setDrawRange(0, 0); // Start with no vertices to draw
-    
-    // Replace the painter's geometry with the fresh one
-    painter.mesh.geometry.dispose(); // Clean up old geometry
-    painter.mesh.geometry = newGeometry;
+    // Reset the painter for new strokes
+    painter.reset();
   }
   
   // Remove from active groups
