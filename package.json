@@ -5,8 +5,14 @@
   "main": "index.html",
   "scripts": {
     "start": "parcel index.html --open",
+    "dev": "parcel index.html --open",
     "build": "parcel build index.html",
-    "build:gh-pages": "parcel build index.html --public-url /xrloader/"
+    "build:local": "parcel build index.html",
+    "build:gh-pages": "parcel build index.html --public-url /xrloader/",
+    "clean": "rimraf dist .cache",
+    "prebuild": "npm run clean",
+    "prebuild:local": "npm run clean",
+    "prebuild:gh-pages": "npm run clean"
   },
   "dependencies": {
     "three": "0.145.0"
@@ -14,7 +20,8 @@
   "devDependencies": {
     "@types/stats.js": "0.17.0",
     "@types/three": "0.93.5",
-    "parcel-bundler": "^1.12.3"
+    "parcel-bundler": "^1.12.3",
+    "rimraf": "^3.0.2"
   },
   "keywords": [
     "virtual-reality",
