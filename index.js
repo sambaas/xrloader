@@ -523,11 +523,8 @@ function endPaintGroup(controller) {
   
   // Clone the current painter mesh and add it to our group
   if (painter.mesh && painter.mesh.geometry && painter.mesh.geometry.attributes.position) {
-    // First, create a complete copy of the current geometry BEFORE disposing
-    const originalGeometry = painter.mesh.geometry;
-    const clonedGeometry = originalGeometry.clone();
-    
-    // Create the paint mesh with the cloned geometry
+    // Create a complete copy of the current geometry for the paint group
+    const clonedGeometry = painter.mesh.geometry.clone();
     const paintMesh = painter.mesh.clone();
     paintMesh.geometry = clonedGeometry;
     
@@ -538,26 +535,33 @@ function endPaintGroup(controller) {
     scene.add(paintGroup);
     paintGroups.push(paintGroup);
     
-    // Reset the painter more carefully - preserve the mesh but clear the geometry
-    // Don't dispose the old geometry yet, let TubePainter handle its lifecycle
+    // Now we need to properly reset the TubePainter for new strokes
+    // The key insight is that TubePainter maintains internal state that we need to reset
     
-    // Create new empty geometry with proper initial setup
-    const newPositions = new THREE.Float32BufferAttribute([], 3);
-    const newColors = new THREE.Float32BufferAttribute([], 3);
+    // Reset the internal count
+    painter.count = 0;
     
-    // Clear the current geometry attributes
-    originalGeometry.setAttribute('position', newPositions);
-    originalGeometry.setAttribute('color', newColors);
-    originalGeometry.attributes.position.needsUpdate = true;
-    originalGeometry.attributes.color.needsUpdate = true;
+    // Reset the position vectors that TubePainter uses internally
+    if (painter.vector1) painter.vector1.set(0, 0, 0);
+    if (painter.vector2) painter.vector2.set(0, 0, 0);
+    if (painter.vector3) painter.vector3.set(0, 0, 0);
+    if (painter.vector4) painter.vector4.set(0, 0, 0);
     
-    // Reset count but preserve other internal state that TubePainter needs
-    if (typeof painter.count !== 'undefined') {
-      painter.count = 0;
-    }
+    // Create a completely new geometry for the painter
+    const newGeometry = new THREE.BufferGeometry();
     
-    // Don't reset the vectors - let TubePainter manage them
-    // The key is to clear the geometry but not break the painter's internal state
+    // Initialize empty arrays for the maximum number of vertices TubePainter might use
+    const maxVertices = 1000000; // Large enough buffer
+    const positions = new Float32Array(maxVertices * 3);
+    const colors = new Float32Array(maxVertices * 3);
+    
+    newGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    newGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    newGeometry.setDrawRange(0, 0); // Start with no vertices to draw
+    
+    // Replace the painter's geometry with the fresh one
+    painter.mesh.geometry.dispose(); // Clean up old geometry
+    painter.mesh.geometry = newGeometry;
   }
   
   // Remove from active groups
