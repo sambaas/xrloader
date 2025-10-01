@@ -3,10 +3,10 @@
 // https://github.com/mrdoob/three.js/blob/master/examples/jsm/webxr/ARButton.js
 // https://github.com/mrdoob/three.js/blob/master/examples/jsm/webxr/VRButton.js
 
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-import { TubePainter } from "three/examples/jsm/misc/TubePainter.js";
-import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import * as THREE from "https://unpkg.com/three@0.157.0/build/three.module.js";
+import { OrbitControls } from "https://unpkg.com/three@0.157.0/examples/jsm/controls/OrbitControls.js";
+import { TubePainter } from "https://unpkg.com/three@0.157.0/examples/jsm/misc/TubePainter.js";
+import { OBJLoader } from "https://unpkg.com/three@0.157.0/examples/jsm/loaders/OBJLoader.js";
 // Note: Cannot directly use the ARButton as it calls immersive-ar with dom and "local" reference space
 // import { ARButton } from "three/examples/jsm/webxr/ARButton";
 
