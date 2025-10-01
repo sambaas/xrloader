@@ -28,6 +28,12 @@ let modelPlacementIndicator = null;
 let raycaster = new THREE.Raycaster();
 let inputSources = [];
 
+// Model catalog and placement system
+let availableModels = []; // Will store loaded model templates
+let currentModelIndex = 0;
+let modelPreview = null;
+let placedModels = []; // Track all placed model instances
+
 // Grab system variables
 let grabbedModel = null;
 let grabController1 = null;
@@ -136,8 +142,19 @@ function init() {
       }
     });
     
-    // Store as template but don't add to scene yet
+    // Add to model catalog
+    availableModels.push({
+      name: 'Closet',
+      template: object,
+      url: closetObjUrl
+    });
+    
+    // Set as current loaded model for backwards compatibility
     loadedModel = object;
+    
+    // Create initial preview
+    createModelPreview();
+    
     console.log('Closet model loaded successfully');
   }, undefined, function(error) {
     console.error('Error loading closet model:', error);
@@ -180,7 +197,7 @@ function init() {
     this.userData.isSelecting = true;
     
     // Left controller (controller1) - model placement
-    if (this === controller1 && loadedModel) {
+    if (this === controller1 && availableModels.length > 0) {
       handleModelPlacement();
     }
     
@@ -423,22 +440,27 @@ function updateMeasurementTextOrientation() {
 // =====================================
 
 function findClosestModel(controller) {
-  if (!placedModel) return null;
+  if (placedModels.length === 0) return null;
   
   const controllerPosition = new THREE.Vector3();
   controller.getWorldPosition(controllerPosition);
   
-  const modelPosition = new THREE.Vector3();
-  placedModel.getWorldPosition(modelPosition);
+  let closestModel = null;
+  let closestDistance = Infinity;
   
-  const distance = controllerPosition.distanceTo(modelPosition);
-  
-  // Only grab if within reasonable distance (2 meters)
-  if (distance < 2.0) {
-    return placedModel;
+  for (let model of placedModels) {
+    const modelPosition = new THREE.Vector3();
+    model.getWorldPosition(modelPosition);
+    const distance = controllerPosition.distanceTo(modelPosition);
+    
+    // Only grab if within reasonable distance (2 meters)
+    if (distance < 2.0 && distance < closestDistance) {
+      closestDistance = distance;
+      closestModel = model;
+    }
   }
   
-  return null;
+  return closestModel;
 }
 
 function handleGrabStart(controller) {
@@ -778,6 +800,98 @@ function switchTool(direction) {
 }
 
 // =====================================
+// MODEL CATALOG AND PREVIEW SYSTEM
+// =====================================
+
+function createModelPreview() {
+  // Remove existing preview
+  if (modelPreview) {
+    if (controller1.children.includes(modelPreview)) {
+      controller1.remove(modelPreview);
+    } else {
+      scene.remove(modelPreview);
+    }
+    modelPreview = null;
+  }
+  
+  // Create preview if we have models available
+  if (availableModels.length > 0 && controller1) {
+    const currentModel = availableModels[currentModelIndex];
+    modelPreview = currentModel.template.clone();
+    
+    // Make preview smaller and semi-transparent
+    modelPreview.scale.setScalar(0.3);
+    modelPreview.position.set(0, 0.2, 0); // Position above controller
+    
+    // Make all materials semi-transparent for preview
+    modelPreview.traverse(function(child) {
+      if (child.isMesh && child.material) {
+        child.material = child.material.clone();
+        child.material.transparent = true;
+        child.material.opacity = 0.6;
+        child.castShadow = false; // Don't cast shadows for preview
+      }
+    });
+    
+    // Add to controller so it moves with it
+    controller1.add(modelPreview);
+    console.log(`Preview created for: ${currentModel.name}`);
+  }
+}
+
+function switchModel(direction) {
+  if (availableModels.length === 0) return;
+  
+  currentModelIndex += direction;
+  if (currentModelIndex < 0) currentModelIndex = availableModels.length - 1;
+  if (currentModelIndex >= availableModels.length) currentModelIndex = 0;
+  
+  console.log(`Switched to model: ${availableModels[currentModelIndex].name}`);
+  
+  // Update preview
+  createModelPreview();
+  
+  // Update loadedModel for backwards compatibility
+  loadedModel = availableModels[currentModelIndex].template;
+}
+
+function findClosestPlacedModel(controllerPosition) {
+  if (placedModels.length === 0) return null;
+  
+  let closestModel = null;
+  let closestDistance = Infinity;
+  
+  for (let model of placedModels) {
+    const modelPosition = new THREE.Vector3();
+    model.getWorldPosition(modelPosition);
+    const distance = controllerPosition.distanceTo(modelPosition);
+    
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestModel = model;
+    }
+  }
+  
+  return closestModel;
+}
+
+function removePlacedModel(model) {
+  if (!model) return false;
+  
+  // Remove from scene
+  scene.remove(model);
+  
+  // Remove from placedModels array
+  const index = placedModels.indexOf(model);
+  if (index > -1) {
+    placedModels.splice(index, 1);
+  }
+  
+  console.log('Removed placed model');
+  return true;
+}
+
+// =====================================
 // MODEL PLACEMENT SYSTEM
 // =====================================
 
@@ -799,24 +913,37 @@ function handleModelPlacement() {
     
     // Check if we hit the floor (assuming floor is at y = 0)
     if (intersection.point.y <= 0.1) {
-      // If model isn't in scene yet, add it
-      if (!placedModel) {
-        placedModel = loadedModel;
-        scene.add(placedModel);
-      }
+      // Create a new copy of the model
+      const newModel = loadedModel.clone();
       
-      // Move the model to the intersection point
-      placedModel.position.copy(intersection.point);
-      placedModel.position.y = 0; // Ensure it's on the floor
+      // Restore full opacity and shadows for placed model
+      newModel.traverse(function(child) {
+        if (child.isMesh && child.material) {
+          child.material = child.material.clone();
+          child.material.transparent = false;
+          child.material.opacity = 1.0;
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
       
-      console.log('Model moved to:', intersection.point);
+      // Position the new model
+      newModel.position.copy(intersection.point);
+      newModel.position.y = 0; // Ensure it's on the floor
+      newModel.scale.setScalar(1.0); // Reset to full size
+      
+      // Add to scene and track it
+      scene.add(newModel);
+      placedModels.push(newModel);
+      
+      console.log('Placed new model at:', intersection.point);
       break;
     }
   }
 }
 
 function updatePlacementIndicator() {
-  if (!loadedModel || !controller1) return;
+  if (availableModels.length === 0 || !controller1) return;
   
   // Get controller1 position and direction
   const tempMatrix = new THREE.Matrix4();
@@ -851,10 +978,10 @@ function updatePlacementIndicator() {
 // INPUT HANDLING
 // =====================================
 
-function handleModelRotation() {
-  if (!placedModel || !currentSession) return;
+function handleModelSelection() {
+  if (!currentSession || thumbstickCooldown > 0) return;
   
-  // Find the left controller input source (usually index 0)
+  // Find the left controller input source
   for (let i = 0; i < inputSources.length; i++) {
     const inputSource = inputSources[i];
     if (inputSource.gamepad && inputSource.handedness === 'left') {
@@ -863,12 +990,12 @@ function handleModelRotation() {
       // Thumbstick is typically axes 2 and 3 (x and y)
       if (gamepad.axes.length >= 4) {
         const thumbstickX = gamepad.axes[2];
-        const thumbstickY = gamepad.axes[3];
         
-        // Use thumbstick X for rotation around Y-axis
-        if (Math.abs(thumbstickX) > 0.1) { // Dead zone
-          const rotationSpeed = 0.05;
-          placedModel.rotation.y += thumbstickX * rotationSpeed;
+        // Use thumbstick X for model selection
+        if (Math.abs(thumbstickX) > 0.7) { // Higher threshold for model switching
+          const direction = thumbstickX > 0 ? 1 : -1;
+          switchModel(direction);
+          thumbstickCooldown = 0.5; // 500ms cooldown to prevent rapid switching
         }
       }
       break;
@@ -900,7 +1027,7 @@ function handleToolSwitching() {
   }
 }
 
-function handleMeasurementDeletion() {
+function handleDeletion() {
   if (!currentSession || buttonCooldown > 0) return;
   
   // Check B button on both controllers
@@ -917,10 +1044,35 @@ function handleMeasurementDeletion() {
           const controllerPosition = new THREE.Vector3();
           controller.getWorldPosition(controllerPosition);
           
-          // Find and remove closest measurement line
+          // Find closest measurement line and model
           const closestLine = findClosestMeasurementLine(controllerPosition);
-          if (removeMeasurementLine(closestLine)) {
-            buttonCooldown = 0.5; // 500ms cooldown
+          const closestModel = findClosestPlacedModel(controllerPosition);
+          
+          // Determine which is closer and remove it
+          let lineDistance = Infinity;
+          let modelDistance = Infinity;
+          
+          if (closestLine) {
+            const { startPoint, endPoint } = closestLine.userData;
+            const midpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
+            lineDistance = controllerPosition.distanceTo(midpoint);
+          }
+          
+          if (closestModel) {
+            const modelPosition = new THREE.Vector3();
+            closestModel.getWorldPosition(modelPosition);
+            modelDistance = controllerPosition.distanceTo(modelPosition);
+          }
+          
+          // Remove the closest object
+          if (lineDistance < modelDistance && closestLine) {
+            if (removeMeasurementLine(closestLine)) {
+              buttonCooldown = 0.5; // 500ms cooldown
+            }
+          } else if (closestModel) {
+            if (removePlacedModel(closestModel)) {
+              buttonCooldown = 0.5; // 500ms cooldown
+            }
           }
         }
         break;
@@ -1040,14 +1192,14 @@ function render() {
   // Update placement indicator when aiming with left controller
   updatePlacementIndicator();
   
-  // Handle model rotation with left thumbstick
-  handleModelRotation();
+  // Handle model selection with left thumbstick
+  handleModelSelection();
   
   // Handle tool switching with right thumbstick
   handleToolSwitching();
   
-  // Handle measurement deletion with B button
-  handleMeasurementDeletion();
+  // Handle deletion with B button (both measurement lines and models)
+  handleDeletion();
 
   renderer.render(scene, camera);
 }
