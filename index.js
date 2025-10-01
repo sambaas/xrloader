@@ -226,19 +226,6 @@ function init() {
   });
   const rulerMesh = new THREE.Mesh(rulerGeometry, rulerMaterial);
   
-  // Add measurement markings (small rings)
-  for (let i = 0; i < 4; i++) {
-    const markGeometry = new THREE.RingGeometry(0.008, 0.012, 8);
-    const markMaterial = new THREE.MeshStandardMaterial({ 
-      color: 0xFFFFFF,
-      side: THREE.DoubleSide
-    });
-    const mark = new THREE.Mesh(markGeometry, markMaterial);
-    mark.position.z = -0.02 - (i * 0.02);
-    mark.rotateX(-Math.PI / 2);
-    measurementGroup.add(mark);
-  }
-  
   // Pointer tip
   const tipGeometry = new THREE.ConeGeometry(0.015, 0.03, 6);
   tipGeometry.rotateX(-Math.PI / 2);
@@ -427,16 +414,28 @@ function findSnapPoint(targetPoint) {
   return closestPoint;
 }
 
+function getTipPosition(controller) {
+  // Get the tip position from the measurement tool
+  // The tip is at z = -0.08 in the controller's local space
+  const tipPosition = new THREE.Vector3(0, 0, -0.08);
+  
+  // Transform to world space
+  const worldMatrix = controller.matrixWorld;
+  tipPosition.applyMatrix4(worldMatrix);
+  
+  return tipPosition;
+}
+
 function updateMeasurementPreview(controller) {
   if (!measurementStartPoint || !controller) return;
   
-  // Get controller position
-  const controllerPosition = new THREE.Vector3();
-  controllerPosition.setFromMatrixPosition(controller.matrixWorld);
+  // Get tip position when using measurement tool
+  const tipPosition = currentTool === 1 ? getTipPosition(controller) : 
+                     new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
   
   // Check for snap point
-  const snapPoint = findSnapPoint(controllerPosition);
-  const endPoint = snapPoint || controllerPosition;
+  const snapPoint = findSnapPoint(tipPosition);
+  const endPoint = snapPoint || tipPosition;
   
   // Remove old preview line
   if (measurementPreviewLine) {
@@ -610,12 +609,12 @@ function handleToolSwitching() {
 
 function handleMeasurementStart() {
   if (!measurementStartPoint) {
-    // First click - set start point
-    const controllerPosition = new THREE.Vector3();
-    controllerPosition.setFromMatrixPosition(controller2.matrixWorld);
+    // First click - set start point from tip position
+    const tipPosition = currentTool === 1 ? getTipPosition(controller2) : 
+                       new THREE.Vector3().setFromMatrixPosition(controller2.matrixWorld);
     
-    const snapPoint = findSnapPoint(controllerPosition);
-    measurementStartPoint = snapPoint || controllerPosition;
+    const snapPoint = findSnapPoint(tipPosition);
+    measurementStartPoint = snapPoint || tipPosition;
     isPlacingMeasurement = true;
     
     console.log('Measurement started');
@@ -624,12 +623,12 @@ function handleMeasurementStart() {
 
 function handleMeasurementEnd() {
   if (measurementStartPoint && isPlacingMeasurement) {
-    // Second click - create measurement line
-    const controllerPosition = new THREE.Vector3();
-    controllerPosition.setFromMatrixPosition(controller2.matrixWorld);
+    // Second click - create measurement line from tip position
+    const tipPosition = currentTool === 1 ? getTipPosition(controller2) : 
+                       new THREE.Vector3().setFromMatrixPosition(controller2.matrixWorld);
     
-    const snapPoint = findSnapPoint(controllerPosition);
-    const endPoint = snapPoint || controllerPosition;
+    const snapPoint = findSnapPoint(tipPosition);
+    const endPoint = snapPoint || tipPosition;
     
     // Create the measurement line
     createMeasurementLine(measurementStartPoint, endPoint);
