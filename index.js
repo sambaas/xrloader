@@ -90,11 +90,15 @@ function init() {
     roughness: 1.0,
     metalness: 0.0,
     transparent: true,
-    opacity: 0.0
+    opacity: 0.0,
+    // Make sure the floor is still raycastable even when invisible
+    side: THREE.DoubleSide
   });
   const floor = new THREE.Mesh(floorGometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true; // Floor receives shadows
+  // Add a name to identify the floor for debugging
+  floor.name = 'floor';
   scene.add(floor);
 
   /*const grid = new THREE.GridHelper(10, 20, 0x111111, 0x111111);
@@ -635,11 +639,21 @@ function updateBlockPreview(controller) {
   for (let i = 0; i < intersects.length; i++) {
     const intersection = intersects[i];
     
-    // Skip if hitting the preview itself, tool indicators, or controller meshes
+    // Skip if hitting the preview itself, tool indicators, controller meshes, or measurement lines
     if (intersection.object === blockPreview || 
         intersection.object.parent === controller ||
         intersection.object === toolIndicatorMesh ||
-        intersection.object.material?.transparent) {
+        intersection.object.parent === controller1 ||
+        intersection.object.parent === controller2 ||
+        intersection.object.type === 'Line') {
+      continue;
+    }
+    
+    // Skip fully transparent objects that aren't the floor
+    if (intersection.object.material && 
+        intersection.object.material.transparent && 
+        intersection.object.material.opacity < 0.1 && 
+        intersection.object.name !== 'floor') {
       continue;
     }
     
@@ -648,11 +662,18 @@ function updateBlockPreview(controller) {
     blockPreview.position.y += blockDimensions.height / 2; // Center the block on the surface
     blockPreview.visible = true;
     foundHit = true;
+    console.log('Block preview positioned at:', intersection.point, 'on object:', intersection.object.name || 'unnamed');
     break;
   }
   
   if (!foundHit) {
-    blockPreview.visible = false;
+    // Fallback: place at a fixed distance in front of the controller
+    const fallbackPosition = new THREE.Vector3(0, 0, -0.5);
+    fallbackPosition.applyMatrix4(controller.matrixWorld);
+    blockPreview.position.copy(fallbackPosition);
+    blockPreview.position.y = blockDimensions.height / 2; // Place on "ground level"
+    blockPreview.visible = true;
+    console.log('Block preview fallback positioned at:', fallbackPosition);
   }
 }
 
