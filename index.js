@@ -913,9 +913,15 @@ function createModelPreview() {
     const currentModel = availableModels[currentModelIndex];
     modelPreview = currentModel.template.clone();
     
-    // Make preview much smaller and semi-transparent
-    modelPreview.scale.setScalar(0.1); // 10% of original size
-    modelPreview.position.set(0, 0.2, 0); // Position above controller
+    // Calculate the bounding box to determine scale for 3cm max height
+    const box = new THREE.Box3().setFromObject(modelPreview);
+    const size = box.getSize(new THREE.Vector3());
+    const maxDimension = Math.max(size.x, size.y, size.z);
+    const targetMaxSize = 0.03; // 3cm in meters
+    const scale = targetMaxSize / maxDimension;
+    
+    modelPreview.scale.setScalar(scale);
+    modelPreview.position.set(0, 0.02, 0); // Position 2cm above controller
     
     // Make all materials semi-transparent for preview
     modelPreview.traverse(function(child) {
