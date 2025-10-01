@@ -680,6 +680,14 @@ function updateMeasurementPreview(controller) {
   const distance = measurementStartPoint.distanceTo(endPoint);
   const midpoint = new THREE.Vector3().addVectors(measurementStartPoint, endPoint).multiplyScalar(0.5);
   measurementPreviewText = createMeasurementText(distance, midpoint, true);
+  
+  // Make preview text face camera immediately
+  if (camera) {
+    const cameraPosition = new THREE.Vector3();
+    camera.getWorldPosition(cameraPosition);
+    measurementPreviewText.lookAt(cameraPosition);
+  }
+  
   scene.add(measurementPreviewText);
 }
 
