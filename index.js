@@ -7,6 +7,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import { TubePainter } from "three/examples/jsm/misc/TubePainter.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+// Import assets so Parcel includes them in the build
+import closetObjUrl from "./assets/closet.obj";
+import exampleCubeObjUrl from "./assets/example-cube.obj";
 // Note: Cannot directly use the ARButton as it calls immersive-ar with dom and "local" reference space
 // import { ARButton } from "three/examples/jsm/webxr/ARButton";
 
@@ -73,7 +76,7 @@ function init() {
 
   // Load the closet.obj model
   const objLoader = new OBJLoader();
-  objLoader.load('./closet.obj', function(object) {
+  objLoader.load(closetObjUrl, function(object) {
     // Scale and position the loaded model
     object.scale.setScalar(0.5); // Adjust scale as needed
     object.position.set(0, 0, -2); // Place in front of viewer initially
