@@ -15,7 +15,7 @@ class CustomPainter {
     this.material = null;
     this.points = []; // Store actual 3D points along the path
     this.size = 0.02; // Made larger for better visibility
-    this.color = new THREE.Color(0.2, 0.8, 0.2); // Bright green for visibility
+    this.color = new THREE.Color(0x6A8DFF); // Lighter royal blue for painter strokes
     this.isDrawing = false;
     this.lastPosition = new THREE.Vector3();
     this.segmentLength = 0.01; // Slightly larger segment length
