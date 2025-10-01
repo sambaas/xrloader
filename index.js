@@ -315,7 +315,10 @@ function updateToolIndicator() {
   const canvas = toolIndicatorMesh.material.map.image;
   const context = canvas.getContext('2d');
   
-  // Clear and redraw
+  // Clear the entire canvas first
+  context.clearRect(0, 0, 512, 128);
+  
+  // Draw background
   context.fillStyle = 'rgba(0, 0, 0, 0.8)';
   context.fillRect(0, 0, 512, 128);
   
@@ -367,13 +370,13 @@ function createMeasurementLine(startPoint, endPoint) {
   
   const texture = new THREE.CanvasTexture(canvas);
   const textMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
-  const textGeometry = new THREE.PlaneGeometry(0.3, 0.075);
+  const textGeometry = new THREE.PlaneGeometry(0.1, 0.025); // 3 times smaller
   const textMesh = new THREE.Mesh(textGeometry, textMaterial);
   
-  // Position text at midpoint of line
+  // Position text at midpoint of line (ON the line, not above)
   const midpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
   textMesh.position.copy(midpoint);
-  textMesh.position.y += 0.1; // Slightly above the line
+  // Remove the y offset so it's on the line instead of above it
   
   // Make text face camera
   textMesh.lookAt(camera.position);
@@ -416,8 +419,8 @@ function findSnapPoint(targetPoint) {
 
 function getTipPosition(controller) {
   // Get the tip position from the measurement tool
-  // The tip is at z = -0.08 in the controller's local space
-  const tipPosition = new THREE.Vector3(0, 0, -0.08);
+  // The cone tip is at z = -0.08 (cone position) - 0.015 (half cone height) = -0.095
+  const tipPosition = new THREE.Vector3(0, 0, -0.095);
   
   // Transform to world space
   const worldMatrix = controller.matrixWorld;
