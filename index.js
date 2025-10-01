@@ -35,6 +35,7 @@ let toolIndicatorMesh = null;
 let measurementLines = [];
 let currentMeasurementLine = null;
 let measurementPreviewLine = null;
+let measurementPreviewText = null;
 let measurementStartPoint = null;
 let isPlacingMeasurement = false;
 const snapDistance = 0.02; // 2cm snap distance
@@ -342,6 +343,63 @@ function createToolIndicator() {
   controller2.add(toolIndicatorMesh);
 }
 
+function createMeasurementText(distance, midpoint, isPreview = false) {
+  // Create measurement text
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  canvas.width = 256;
+  canvas.height = 64;
+  
+  // Different styling for preview vs final measurement
+  if (isPreview) {
+    context.fillStyle = 'rgba(255, 255, 0, 0.8)'; // Yellow background for preview
+    context.fillRect(0, 0, 256, 64);
+    context.fillStyle = 'black';
+  } else {
+    context.fillStyle = 'white';
+    context.fillRect(0, 0, 256, 64);
+    context.fillStyle = 'black';
+  }
+  
+  context.font = 'bold 24px Arial';
+  context.textAlign = 'center';
+  context.fillText(`${distance.toFixed(2)}m`, 128, 40);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  const textMaterial = new THREE.MeshBasicMaterial({ 
+    map: texture, 
+    transparent: true,
+    opacity: isPreview ? 0.8 : 1.0
+  });
+  const textGeometry = new THREE.PlaneGeometry(0.1, 0.025);
+  const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+  
+  // Position text above the midpoint of the line
+  textMesh.position.copy(midpoint);
+  textMesh.position.y += 0.05; // Position above the line
+  
+  return textMesh;
+}
+
+function updateMeasurementTextOrientation() {
+  // Update all measurement text orientations to face camera
+  for (let measurementLine of measurementLines) {
+    const textMesh = measurementLine.children.find(child => child.material && child.material.map);
+    if (textMesh && camera) {
+      const cameraPosition = new THREE.Vector3();
+      camera.getWorldPosition(cameraPosition);
+      textMesh.lookAt(cameraPosition);
+    }
+  }
+  
+  // Update preview text orientation
+  if (measurementPreviewText && camera) {
+    const cameraPosition = new THREE.Vector3();
+    camera.getWorldPosition(cameraPosition);
+    measurementPreviewText.lookAt(cameraPosition);
+  }
+}
+
 function updateToolIndicator() {
   if (!toolIndicatorMesh) return;
   
@@ -390,30 +448,9 @@ function createMeasurementLine(startPoint, endPoint) {
   const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 3 });
   const line = new THREE.Line(lineGeometry, lineMaterial);
   
-  // Create measurement text
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-  canvas.width = 256;
-  canvas.height = 64;
-  context.fillStyle = 'white';
-  context.fillRect(0, 0, 256, 64);
-  context.fillStyle = 'black';
-  context.font = 'bold 24px Arial';
-  context.textAlign = 'center';
-  context.fillText(`${distance.toFixed(2)}m`, 128, 40);
-  
-  const texture = new THREE.CanvasTexture(canvas);
-  const textMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
-  const textGeometry = new THREE.PlaneGeometry(0.1, 0.025); // 3 times smaller
-  const textMesh = new THREE.Mesh(textGeometry, textMaterial);
-  
-  // Position text at midpoint of line (ON the line, not above)
+  // Create measurement text using helper function
   const midpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
-  textMesh.position.copy(midpoint);
-  // Remove the y offset so it's on the line instead of above it
-  
-  // Make text face camera
-  textMesh.lookAt(camera.position);
+  const textMesh = createMeasurementText(distance, midpoint, false);
   
   // Group line and text together
   const measurementGroup = new THREE.Group();
@@ -474,9 +511,12 @@ function updateMeasurementPreview(controller) {
   const snapPoint = findSnapPoint(tipPosition);
   const endPoint = snapPoint || tipPosition;
   
-  // Remove old preview line
+  // Remove old preview line and text
   if (measurementPreviewLine) {
     scene.remove(measurementPreviewLine);
+  }
+  if (measurementPreviewText) {
+    scene.remove(measurementPreviewText);
   }
   
   // Create preview line
@@ -489,6 +529,12 @@ function updateMeasurementPreview(controller) {
   });
   measurementPreviewLine = new THREE.Line(lineGeometry, lineMaterial);
   scene.add(measurementPreviewLine);
+  
+  // Create preview text with distance
+  const distance = measurementStartPoint.distanceTo(endPoint);
+  const midpoint = new THREE.Vector3().addVectors(measurementStartPoint, endPoint).multiplyScalar(0.5);
+  measurementPreviewText = createMeasurementText(distance, midpoint, true);
+  scene.add(measurementPreviewText);
 }
 
 function switchTool(direction) {
@@ -521,6 +567,10 @@ function switchTool(direction) {
     if (measurementPreviewLine) {
       scene.remove(measurementPreviewLine);
       measurementPreviewLine = null;
+    }
+    if (measurementPreviewText) {
+      scene.remove(measurementPreviewText);
+      measurementPreviewText = null;
     }
     measurementStartPoint = null;
     isPlacingMeasurement = false;
@@ -675,6 +725,10 @@ function handleMeasurementEnd() {
       scene.remove(measurementPreviewLine);
       measurementPreviewLine = null;
     }
+    if (measurementPreviewText) {
+      scene.remove(measurementPreviewText);
+      measurementPreviewText = null;
+    }
     
     // Reset for next measurement
     measurementStartPoint = null;
@@ -731,6 +785,9 @@ function render() {
     camera.getWorldPosition(cameraPosition);
     toolIndicatorMesh.lookAt(cameraPosition);
   }
+  
+  // Update measurement text orientations to always face camera
+  updateMeasurementTextOrientation();
   
   handleController(controller1);
   handleController(controller2);
