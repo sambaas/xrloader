@@ -1510,46 +1510,10 @@ function handleController(controller) {
 
   const pivot = controller.getObjectByName("pivot");
 
-  // Handle painting for both controllers when painter tool is active and not grabbing
+  // Handle painting only for right controller when painter tool is active and not grabbing
   if (!grabbedModel) {
     // Right controller - only when painter tool is active
     if (controller === controller2 && currentTool === 0) {
-      if (userData.isSqueezing === true) {
-        const delta = (controller.position.y - userData.positionAtSqueezeStart) * 5;
-        const scale = Math.max(0.1, userData.scaleAtSqueezeStart + delta);
-
-        pivot.scale.setScalar(scale);
-        painter.setSize(scale);
-      }
-
-      cursor.setFromMatrixPosition(pivot.matrixWorld);
-
-      if (userData.isSelecting === true) {
-        // Start a new paint group if this is the beginning of a stroke
-        if (!activePaintGroups.has(controller)) {
-          startPaintGroup(controller, painter);
-        }
-        
-        painter.lineTo(cursor);
-        painter.update();
-      } else {
-        // End the paint group when selection ends
-        if (activePaintGroups.has(controller)) {
-          endPaintGroup(controller);
-        }
-        painter.moveTo(cursor);
-      }
-    } 
-    // Left controller - always available for painting (placement controller can also paint)
-    else if (controller === controller1) {
-      if (userData.isSqueezing === true) {
-        const delta = (controller.position.y - userData.positionAtSqueezeStart) * 5;
-        const scale = Math.max(0.1, userData.scaleAtSqueezeStart + delta);
-
-        pivot.scale.setScalar(scale);
-        painter.setSize(scale);
-      }
-
       cursor.setFromMatrixPosition(pivot.matrixWorld);
 
       if (userData.isSelecting === true) {
