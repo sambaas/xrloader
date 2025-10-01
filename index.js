@@ -7,8 +7,6 @@ import * as THREE from "https://unpkg.com/three@0.157.0/build/three.module.js";
 import { OrbitControls } from "https://unpkg.com/three@0.157.0/examples/jsm/controls/OrbitControls.js";
 import { TubePainter } from "https://unpkg.com/three@0.157.0/examples/jsm/misc/TubePainter.js";
 import { OBJLoader } from "https://unpkg.com/three@0.157.0/examples/jsm/loaders/OBJLoader.js";
-// Note: Cannot directly use the ARButton as it calls immersive-ar with dom and "local" reference space
-// import { ARButton } from "three/examples/jsm/webxr/ARButton";
 
 let camera, scene, renderer;
 let controller1, controller2;
