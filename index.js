@@ -1,10 +1,7 @@
-// References
-// https://github.com/mrdoob/three.js/blob/master/examples/webxr_vr_paint.html
-// https://github.com/mrdoob/three.js/blob/master/examples/jsm/webxr/ARButton.js
-// https://github.com/mrdoob/three.js/blob/master/examples/jsm/webxr/VRButton.js
-
-// Three.js is now available as global variables:
-// THREE, THREE.OrbitControls, THREE.TubePainter, THREE.OBJLoader
+import * as THREE from "https://unpkg.com/three@0.157.0/build/three.module.js";
+import { OrbitControls } from "https://unpkg.com/three@0.157.0/examples/jsm/controls/OrbitControls.js";
+import { TubePainter } from "https://unpkg.com/three@0.157.0/examples/jsm/misc/TubePainter.js";
+import { OBJLoader } from "https://unpkg.com/three@0.157.0/examples/jsm/loaders/OBJLoader.js";
 
 let camera, scene, renderer;
 let controller1, controller2;
@@ -37,7 +34,7 @@ function init() {
   );
   camera.position.set(0, 1.6, 3);
 
-  controls = new THREE.OrbitControls(camera, container);
+  controls = new OrbitControls(camera, container);
   controls.target.set(0, 1.6, 0);
   controls.update();
 
@@ -61,7 +58,7 @@ function init() {
   scene.add(light);
 
   // Load the closet model
-  const objLoader = new THREE.OBJLoader();
+  const objLoader = new OBJLoader();
   objLoader.load('./closet.obj', function (object) {
     closetModel = object;
     
