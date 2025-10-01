@@ -774,10 +774,11 @@ function findClosestMeasurementLine(controllerPosition) {
   for (let measurementLine of measurementLines) {
     const { startPoint, endPoint } = measurementLine.userData;
     
-    // Calculate distance from controller to the line
-    // Use the midpoint of the line for simplicity
-    const midpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
-    const distance = controllerPosition.distanceTo(midpoint);
+    // Calculate distance from controller to the line segment (not just midpoint)
+    const line = new THREE.Line3(startPoint, endPoint);
+    const closestPoint = new THREE.Vector3();
+    line.closestPointToPoint(controllerPosition, true, closestPoint);
+    const distance = controllerPosition.distanceTo(closestPoint);
     
     if (distance < closestDistance) {
       closestDistance = distance;
@@ -785,7 +786,7 @@ function findClosestMeasurementLine(controllerPosition) {
     }
   }
   
-  return closestLine;
+  return { line: closestLine, distance: closestDistance };
 }
 
 function removeMeasurementLine(measurementLine) {
@@ -962,9 +963,17 @@ function findClosestPlacedModel(controllerPosition) {
   let closestDistance = Infinity;
   
   for (let model of placedModels) {
-    const modelPosition = new THREE.Vector3();
-    model.getWorldPosition(modelPosition);
-    const distance = controllerPosition.distanceTo(modelPosition);
+    // Create bounding box for the model
+    const boundingBox = new THREE.Box3().setFromObject(model);
+    
+    // Check if controller position is inside the bounding box
+    if (boundingBox.containsPoint(controllerPosition)) {
+      return { model: model, distance: 0 }; // Inside the object
+    }
+    
+    // If not inside, calculate distance to the bounding box
+    const closestPoint = boundingBox.clampPoint(controllerPosition, new THREE.Vector3());
+    const distance = controllerPosition.distanceTo(closestPoint);
     
     if (distance < closestDistance) {
       closestDistance = distance;
@@ -972,7 +981,7 @@ function findClosestPlacedModel(controllerPosition) {
     }
   }
   
-  return closestModel;
+  return { model: closestModel, distance: closestDistance };
 }
 
 function removePlacedModel(model) {
@@ -989,6 +998,108 @@ function removePlacedModel(model) {
   
   console.log('Removed placed model');
   return true;
+}
+
+function findClosestPaintSegment(controllerPosition) {
+  let closestPaintSegment = null;
+  let closestDistance = Infinity;
+  
+  // Check both painters
+  const painters = [controller1.userData.painter, controller2.userData.painter];
+  
+  for (let painter of painters) {
+    if (!painter || !painter.mesh) continue;
+    
+    // Get the paint mesh geometry
+    const paintMesh = painter.mesh;
+    if (!paintMesh.geometry || !paintMesh.geometry.attributes.position) continue;
+    
+    const positions = paintMesh.geometry.attributes.position;
+    const pointCount = positions.count;
+    
+    // Check points in the paint geometry
+    for (let i = 0; i < pointCount; i += 3) { // Sample every 3rd point for performance
+      const point = new THREE.Vector3(
+        positions.getX(i),
+        positions.getY(i),
+        positions.getZ(i)
+      );
+      
+      // Transform to world space
+      point.applyMatrix4(paintMesh.matrixWorld);
+      
+      const distance = controllerPosition.distanceTo(point);
+      
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestPaintSegment = {
+          painter: painter,
+          segmentIndex: Math.floor(i / 3),
+          distance: distance,
+          point: point
+        };
+      }
+    }
+  }
+  
+  return closestPaintSegment;
+}
+
+function removePaintSegment(painter, segmentIndex) {
+  if (!painter || !painter.mesh || !painter.mesh.geometry) return false;
+  
+  try {
+    // Get current geometry
+    const geometry = painter.mesh.geometry;
+    const positions = geometry.attributes.position;
+    const colors = geometry.attributes.color;
+    
+    if (!positions || !colors) return false;
+    
+    const pointCount = positions.count;
+    if (segmentIndex >= pointCount) return false;
+    
+    // Create new arrays without the target segment and nearby points
+    const removalRadius = 10; // Remove points within this radius of the target
+    const newPositions = [];
+    const newColors = [];
+    
+    for (let i = 0; i < pointCount; i++) {
+      const distance = Math.abs(i - segmentIndex);
+      
+      // Skip points within removal radius
+      if (distance > removalRadius) {
+        newPositions.push(
+          positions.getX(i),
+          positions.getY(i),
+          positions.getZ(i)
+        );
+        newColors.push(
+          colors.getR(i),
+          colors.getG(i),
+          colors.getB(i)
+        );
+      }
+    }
+    
+    // Update geometry with new arrays
+    if (newPositions.length > 0) {
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.color.needsUpdate = true;
+      geometry.computeBoundingSphere();
+    } else {
+      // If no points left, clear the geometry
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error removing paint segment:', error);
+    return false;
+  }
 }
 
 // =====================================
@@ -1133,33 +1244,33 @@ function handleEraserAction() {
   const controllerPosition = new THREE.Vector3();
   controller2.getWorldPosition(controllerPosition);
   
-  // Find closest measurement line and model
-  const closestLine = findClosestMeasurementLine(controllerPosition);
-  const closestModel = findClosestPlacedModel(controllerPosition);
+  // Find closest measurement line, model, and paint segments
+  const closestLineResult = findClosestMeasurementLine(controllerPosition);
+  const closestModelResult = findClosestPlacedModel(controllerPosition);
+  const closestPaintSegment = findClosestPaintSegment(controllerPosition);
   
   // Determine which is closer and remove it
-  let lineDistance = Infinity;
-  let modelDistance = Infinity;
+  let lineDistance = closestLineResult ? closestLineResult.distance : Infinity;
+  let modelDistance = closestModelResult ? closestModelResult.distance : Infinity;
+  let paintDistance = closestPaintSegment ? closestPaintSegment.distance : Infinity;
   
-  if (closestLine) {
-    const { startPoint, endPoint } = closestLine.userData;
-    const midpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
-    lineDistance = controllerPosition.distanceTo(midpoint);
-  }
+  // Eraser range - but prioritize objects that contain the eraser point
+  const eraserRange = 0.1; // 10cm range for eraser
+  const paintEraserRange = 0.05; // 5cm range for paint (smaller for precision)
   
-  if (closestModel) {
-    const modelPosition = new THREE.Vector3();
-    closestModel.getWorldPosition(modelPosition);
-    modelDistance = controllerPosition.distanceTo(modelPosition);
-  }
-  
-  // Remove the closest object (within reasonable distance)
-  if (lineDistance < modelDistance && closestLine && lineDistance < 1.0) { // 1 meter range
-    removeMeasurementLine(closestLine);
+  // Check if eraser is inside any object (distance = 0 means inside)
+  if (modelDistance === 0) {
+    removePlacedModel(closestModelResult.model);
+    console.log('Erased placed model (inside bounds)');
+  } else if (lineDistance < paintDistance && lineDistance < modelDistance && closestLineResult.line && lineDistance < eraserRange) {
+    removeMeasurementLine(closestLineResult.line);
     console.log('Erased measurement line');
-  } else if (closestModel && modelDistance < 1.0) { // 1 meter range
-    removePlacedModel(closestModel);
-    console.log('Erased placed model');
+  } else if (paintDistance < modelDistance && closestPaintSegment && paintDistance < paintEraserRange) {
+    removePaintSegment(closestPaintSegment.painter, closestPaintSegment.segmentIndex);
+    console.log('Erased paint segment');
+  } else if (closestModelResult.model && modelDistance < eraserRange) {
+    removePlacedModel(closestModelResult.model);
+    console.log('Erased placed model (near bounds)');
   }
 }
 
