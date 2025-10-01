@@ -1,15 +1,26 @@
-import * as THREE from "https://unpkg.com/three@0.157.0/build/three.module.js";
-import { OrbitControls } from "https://unpkg.com/three@0.157.0/examples/jsm/controls/OrbitControls.js";
-import { TubePainter } from "https://unpkg.com/three@0.157.0/examples/jsm/misc/TubePainter.js";
-import { OBJLoader } from "https://unpkg.com/three@0.157.0/examples/jsm/loaders/OBJLoader.js";
+// References
+// https://github.com/mrdoob/three.js/blob/master/examples/webxr_vr_paint.html
+// https://github.com/mrdoob/three.js/blob/master/examples/jsm/webxr/ARButton.js
+// https://github.com/mrdoob/three.js/blob/master/examples/jsm/webxr/VRButton.js
+
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import { TubePainter } from "three/examples/jsm/misc/TubePainter.js";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+// Note: Cannot directly use the ARButton as it calls immersive-ar with dom and "local" reference space
+// import { ARButton } from "three/examples/jsm/webxr/ARButton";
 
 let camera, scene, renderer;
 let controller1, controller2;
 let currentSession;
 const cursor = new THREE.Vector3();
-let closetModel = null; // The closet object that can be moved
+
+// Model management variables
+let loadedModel = null;
+let placedModel = null;
+let modelPlacementIndicator = null;
 let raycaster = new THREE.Raycaster();
-let floorPlane = null; // Invisible floor for raycasting
+let inputSources = [];
 
 let controls;
 
@@ -38,18 +49,21 @@ function init() {
   controls.target.set(0, 1.6, 0);
   controls.update();
 
-  
-  // Create invisible floor plane for raycasting
-  const invisibleFloorGeometry = new THREE.PlaneGeometry(20, 20);
-  const invisibleFloorMaterial = new THREE.MeshBasicMaterial({
+  const floorGometry = new THREE.PlaneGeometry(100, 100);
+  const floorMaterial = new THREE.MeshStandardMaterial({
+    color: 0x222222,
+    roughness: 1.0,
+    metalness: 0.0,
     transparent: true,
-    opacity: 0,
-    side: THREE.DoubleSide
+    opacity: 0.0
   });
-  floorPlane = new THREE.Mesh(invisibleFloorGeometry, invisibleFloorMaterial);
-  floorPlane.rotation.x = -Math.PI / 2;
-  floorPlane.position.y = 0;
-  scene.add(floorPlane);
+  const floor = new THREE.Mesh(floorGometry, floorMaterial);
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  /*const grid = new THREE.GridHelper(10, 20, 0x111111, 0x111111);
+  grid.material.depthTest = false; // avoid z-fighting
+  scene.add(grid);*/
 
   scene.add(new THREE.HemisphereLight(0x888877, 0x777788));
 
@@ -57,29 +71,41 @@ function init() {
   light.position.set(0, 4, 0);
   scene.add(light);
 
-  // Load the closet model
+  // Load the closet.obj model
   const objLoader = new OBJLoader();
-  objLoader.load('./closet.obj', function (object) {
-    closetModel = object;
+  objLoader.load('./closet.obj', function(object) {
+    // Scale and position the loaded model
+    object.scale.setScalar(0.5); // Adjust scale as needed
+    object.position.set(0, 0, -2); // Place in front of viewer initially
     
-    // Calculate bounding box to position pivot at ground level
-    const box = new THREE.Box3().setFromObject(object);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
+    // Make sure the model has proper materials
+    object.traverse(function(child) {
+      if (child.isMesh) {
+        child.material = new THREE.MeshStandardMaterial({ color: 0x8B4513 }); // Brown color
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
     
-    // Adjust position so the bottom of the object is at y=0
-    object.position.y = -box.min.y;
-    
-    // Position in front of camera
-    object.position.x = 0;
-    object.position.z = -2;
-    
+    loadedModel = object;
     scene.add(object);
-  }, function (progress) {
-    console.log('Loading progress:', progress);
-  }, function (error) {
+    console.log('Closet model loaded successfully');
+  }, undefined, function(error) {
     console.error('Error loading closet model:', error);
   });
+
+  // Create placement indicator (a simple ring)
+  const indicatorGeometry = new THREE.RingGeometry(0.3, 0.35, 16);
+  const indicatorMaterial = new THREE.MeshBasicMaterial({ 
+    color: 0x00ff00, 
+    transparent: true, 
+    opacity: 0.7,
+    side: THREE.DoubleSide
+  });
+  modelPlacementIndicator = new THREE.Mesh(indicatorGeometry, indicatorMaterial);
+  modelPlacementIndicator.rotation.x = -Math.PI / 2; // Lay flat on ground
+  modelPlacementIndicator.visible = false;
+  scene.add(modelPlacementIndicator);
 
   //
 
@@ -107,18 +133,9 @@ function init() {
   function onSelectStart() {
     this.userData.isSelecting = true;
     
-    // If this is the left controller (controller1), handle object movement
-    if (this === controller1 && closetModel && floorPlane) {
-      // Cast ray from controller to floor
-      raycaster.setFromXRController(this);
-      const intersects = raycaster.intersectObject(floorPlane);
-      
-      if (intersects.length > 0) {
-        const intersectionPoint = intersects[0].point;
-        // Move closet to intersection point, keeping its current Y position (ground level)
-        closetModel.position.x = intersectionPoint.x;
-        closetModel.position.z = intersectionPoint.z;
-      }
+    // Left controller (controller1) - model placement
+    if (this === controller1 && loadedModel) {
+      handleModelPlacement();
     }
   }
 
@@ -183,64 +200,121 @@ function onWindowResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+function handleModelPlacement() {
+  if (!loadedModel) return;
+  
+  // Get controller1 position and direction
+  const tempMatrix = new THREE.Matrix4();
+  tempMatrix.identity().extractRotation(controller1.matrixWorld);
+  
+  raycaster.ray.origin.setFromMatrixPosition(controller1.matrixWorld);
+  raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+  
+  // Check intersection with floor
+  const intersects = raycaster.intersectObjects(scene.children, true);
+  
+  for (let i = 0; i < intersects.length; i++) {
+    const intersection = intersects[i];
+    
+    // Check if we hit the floor (assuming floor is at y = 0)
+    if (intersection.point.y <= 0.1) {
+      // Place the model at the intersection point
+      if (placedModel) {
+        scene.remove(placedModel);
+      }
+      
+      // Clone the loaded model for placement
+      placedModel = loadedModel.clone();
+      placedModel.position.copy(intersection.point);
+      placedModel.position.y = 0; // Ensure it's on the floor
+      scene.add(placedModel);
+      
+      console.log('Model placed at:', intersection.point);
+      break;
+    }
+  }
+}
+
+function updatePlacementIndicator() {
+  if (!loadedModel || !controller1) return;
+  
+  // Get controller1 position and direction
+  const tempMatrix = new THREE.Matrix4();
+  tempMatrix.identity().extractRotation(controller1.matrixWorld);
+  
+  raycaster.ray.origin.setFromMatrixPosition(controller1.matrixWorld);
+  raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+  
+  // Check intersection with floor
+  const intersects = raycaster.intersectObjects(scene.children, true);
+  
+  let foundFloorHit = false;
+  for (let i = 0; i < intersects.length; i++) {
+    const intersection = intersects[i];
+    
+    // Check if we hit the floor
+    if (intersection.point.y <= 0.1) {
+      modelPlacementIndicator.position.copy(intersection.point);
+      modelPlacementIndicator.position.y = 0.01; // Slightly above floor
+      modelPlacementIndicator.visible = true;
+      foundFloorHit = true;
+      break;
+    }
+  }
+  
+  if (!foundFloorHit) {
+    modelPlacementIndicator.visible = false;
+  }
+}
+
+function handleModelRotation() {
+  if (!placedModel || !currentSession) return;
+  
+  // Find the left controller input source (usually index 0)
+  for (let i = 0; i < inputSources.length; i++) {
+    const inputSource = inputSources[i];
+    if (inputSource.gamepad && inputSource.handedness === 'left') {
+      const gamepad = inputSource.gamepad;
+      
+      // Thumbstick is typically axes 2 and 3 (x and y)
+      if (gamepad.axes.length >= 4) {
+        const thumbstickX = gamepad.axes[2];
+        const thumbstickY = gamepad.axes[3];
+        
+        // Use thumbstick X for rotation around Y-axis
+        if (Math.abs(thumbstickX) > 0.1) { // Dead zone
+          const rotationSpeed = 0.05;
+          placedModel.rotation.y += thumbstickX * rotationSpeed;
+        }
+      }
+      break;
+    }
+  }
+}
+
 function handleController(controller) {
   const userData = controller.userData;
   const painter = userData.painter;
 
   const pivot = controller.getObjectByName("pivot");
 
-  if (userData.isSqueezing === true) {
-    const delta = (controller.position.y - userData.positionAtSqueezeStart) * 5;
-    const scale = Math.max(0.1, userData.scaleAtSqueezeStart + delta);
+  // Only handle painting for controller2 (right controller)
+  if (controller === controller2) {
+    if (userData.isSqueezing === true) {
+      const delta = (controller.position.y - userData.positionAtSqueezeStart) * 5;
+      const scale = Math.max(0.1, userData.scaleAtSqueezeStart + delta);
 
-    pivot.scale.setScalar(scale);
-    painter.setSize(scale);
-  }
+      pivot.scale.setScalar(scale);
+      painter.setSize(scale);
+    }
 
-  cursor.setFromMatrixPosition(pivot.matrixWorld);
+    cursor.setFromMatrixPosition(pivot.matrixWorld);
 
-  if (userData.isSelecting === true) {
-    painter.lineTo(cursor);
-    painter.update();
-  } else {
-    painter.moveTo(cursor);
-  }
-
-  // Handle left controller input for object movement and rotation
-  if (controller === controller1 && closetModel && floorPlane) {
-    const session = renderer.xr.getSession();
-    if (session) {
-      const inputSources = session.inputSources;
-      for (const inputSource of inputSources) {
-        if (inputSource.gamepad && inputSource.handedness === 'left') {
-          const gamepad = inputSource.gamepad;
-          
-          // Handle thumbstick rotation (usually axes 2 and 3 are the right thumbstick)
-          // For left controller, we want left thumbstick which is usually axes 0 and 1
-          if (gamepad.axes.length >= 2) {
-            const thumbstickX = gamepad.axes[0]; // Left/right on left thumbstick
-            
-            // Rotate the closet around its Y-axis based on thumbstick input
-            if (Math.abs(thumbstickX) > 0.1) { // Dead zone
-              closetModel.rotation.y += thumbstickX * 0.02; // Adjust rotation speed as needed
-            }
-          }
-          
-          // Handle trigger or button for movement
-          if (userData.isSelecting) {
-            // Cast ray from controller to floor for continuous movement while trigger held
-            raycaster.setFromXRController(controller);
-            const intersects = raycaster.intersectObject(floorPlane);
-            
-            if (intersects.length > 0) {
-              const intersectionPoint = intersects[0].point;
-              // Smoothly move closet to intersection point
-              closetModel.position.x = intersectionPoint.x;
-              closetModel.position.z = intersectionPoint.z;
-            }
-          }
-        }
-      }
+    if (userData.isSelecting === true) {
+      painter.lineTo(cursor);
+      painter.update();
+    } else {
+      painter.moveTo(cursor);
     }
   }
 }
@@ -252,6 +326,12 @@ function animate() {
 function render() {
   handleController(controller1);
   handleController(controller2);
+  
+  // Update placement indicator when aiming with left controller
+  updatePlacementIndicator();
+  
+  // Handle model rotation with left thumbstick
+  handleModelRotation();
 
   renderer.render(scene, camera);
 }
@@ -274,12 +354,19 @@ function startAR() {
 
 async function onSessionStarted(session) {
   session.addEventListener("end", onSessionEnded);
+  session.addEventListener("inputsourceschange", onInputSourcesChange);
   //renderer.xr.setReferenceSpaceType("local");
   await renderer.xr.setSession(session);
   currentSession = session;
 }
 
+function onInputSourcesChange(event) {
+  inputSources = currentSession.inputSources;
+}
+
 function onSessionEnded() {
   currentSession.removeEventListener("end", onSessionEnded);
+  currentSession.removeEventListener("inputsourceschange", onInputSourcesChange);
   currentSession = null;
+  inputSources = [];
 }
