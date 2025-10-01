@@ -25,6 +25,17 @@ let modelPlacementIndicator = null;
 let raycaster = new THREE.Raycaster();
 let inputSources = [];
 
+// Grab system variables
+let grabbedModel = null;
+let grabController1 = null;
+let grabController2 = null;
+let grabOffset1 = new THREE.Vector3();
+let grabOffset2 = new THREE.Vector3();
+let initialModelPosition = new THREE.Vector3();
+let initialModelRotation = new THREE.Euler();
+let initialControllerDistance = 0;
+let initialControllerAngle = 0;
+
 // Tool system variables
 let currentTool = 0; // 0 = painter, 1 = measurement
 const tools = ['Painter', 'Measurement'];
@@ -202,10 +213,16 @@ function init() {
     this.userData.isSqueezing = true;
     this.userData.positionAtSqueezeStart = this.position.y;
     this.userData.scaleAtSqueezeStart = this.scale.x;
+    
+    // Handle grabbing
+    handleGrabStart(this);
   }
 
   function onSqueezeEnd() {
     this.userData.isSqueezing = false;
+    
+    // Handle grab release
+    handleGrabEnd(this);
   }
 
   controller1 = renderer.xr.getController(0);
@@ -397,6 +414,135 @@ function updateMeasurementTextOrientation() {
     const cameraPosition = new THREE.Vector3();
     camera.getWorldPosition(cameraPosition);
     measurementPreviewText.lookAt(cameraPosition);
+  }
+}
+
+function findClosestModel(controller) {
+  if (!placedModel) return null;
+  
+  const controllerPosition = new THREE.Vector3();
+  controller.getWorldPosition(controllerPosition);
+  
+  const modelPosition = new THREE.Vector3();
+  placedModel.getWorldPosition(modelPosition);
+  
+  const distance = controllerPosition.distanceTo(modelPosition);
+  
+  // Only grab if within reasonable distance (2 meters)
+  if (distance < 2.0) {
+    return placedModel;
+  }
+  
+  return null;
+}
+
+function handleGrabStart(controller) {
+  const model = findClosestModel(controller);
+  if (!model) return;
+  
+  if (controller === controller1) {
+    grabController1 = controller;
+    
+    // Calculate offset from controller to model
+    const controllerPos = new THREE.Vector3();
+    controller.getWorldPosition(controllerPos);
+    const modelPos = new THREE.Vector3();
+    model.getWorldPosition(modelPos);
+    grabOffset1.subVectors(modelPos, controllerPos);
+    
+  } else if (controller === controller2) {
+    grabController2 = controller;
+    
+    // Calculate offset from controller to model
+    const controllerPos = new THREE.Vector3();
+    controller.getWorldPosition(controllerPos);
+    const modelPos = new THREE.Vector3();
+    model.getWorldPosition(modelPos);
+    grabOffset2.subVectors(modelPos, controllerPos);
+  }
+  
+  // If this is the first grab or both controllers are now grabbing
+  if (!grabbedModel || (grabController1 && grabController2)) {
+    grabbedModel = model;
+    
+    // Store initial state for dual-controller manipulation
+    if (grabController1 && grabController2) {
+      initialModelPosition.copy(model.position);
+      initialModelRotation.copy(model.rotation);
+      
+      const pos1 = new THREE.Vector3();
+      const pos2 = new THREE.Vector3();
+      grabController1.getWorldPosition(pos1);
+      grabController2.getWorldPosition(pos2);
+      
+      initialControllerDistance = pos1.distanceTo(pos2);
+      
+      // Calculate initial angle between controllers on XZ plane
+      const diff = new THREE.Vector3().subVectors(pos2, pos1);
+      initialControllerAngle = Math.atan2(diff.z, diff.x);
+    }
+  }
+  
+  console.log(`Grabbed model with ${controller === controller1 ? 'left' : 'right'} controller`);
+}
+
+function handleGrabEnd(controller) {
+  if (controller === controller1) {
+    grabController1 = null;
+  } else if (controller === controller2) {
+    grabController2 = null;
+  }
+  
+  // If no controllers are grabbing, release the model
+  if (!grabController1 && !grabController2) {
+    grabbedModel = null;
+    console.log('Released model');
+  }
+  
+  console.log(`Released ${controller === controller1 ? 'left' : 'right'} controller grab`);
+}
+
+function updateGrabbedModel() {
+  if (!grabbedModel) return;
+  
+  if (grabController1 && grabController2) {
+    // Dual controller manipulation - move and rotate
+    const pos1 = new THREE.Vector3();
+    const pos2 = new THREE.Vector3();
+    grabController1.getWorldPosition(pos1);
+    grabController2.getWorldPosition(pos2);
+    
+    // Calculate center point between controllers
+    const centerPoint = new THREE.Vector3().addVectors(pos1, pos2).multiplyScalar(0.5);
+    
+    // Apply offsets and set position
+    const avgOffset = new THREE.Vector3().addVectors(grabOffset1, grabOffset2).multiplyScalar(0.5);
+    grabbedModel.position.copy(centerPoint.add(avgOffset));
+    
+    // Calculate rotation based on controller orientation
+    const currentDistance = pos1.distanceTo(pos2);
+    const diff = new THREE.Vector3().subVectors(pos2, pos1);
+    const currentAngle = Math.atan2(diff.z, diff.x);
+    
+    // Apply rotation difference
+    const angleDiff = currentAngle - initialControllerAngle;
+    grabbedModel.rotation.y = initialModelRotation.y + angleDiff;
+    
+    // Optional: Scale based on distance change (uncomment if desired)
+    // const scaleRatio = currentDistance / initialControllerDistance;
+    // grabbedModel.scale.setScalar(Math.max(0.5, Math.min(2.0, scaleRatio)));
+    
+  } else if (grabController1) {
+    // Single controller manipulation - just move
+    const controllerPos = new THREE.Vector3();
+    grabController1.getWorldPosition(controllerPos);
+    grabbedModel.position.copy(controllerPos.add(grabOffset1));
+    
+  } else if (grabController2) {
+    // Single controller manipulation - just move
+    const controllerPos = new THREE.Vector3();
+    grabController2.getWorldPosition(controllerPos);
+    grabbedModel.position.copy(controllerPos.add(grabOffset2));
   }
 }
 
@@ -744,8 +890,8 @@ function handleController(controller) {
 
   const pivot = controller.getObjectByName("pivot");
 
-  // Only handle painting for controller2 (right controller) when painter tool is active
-  if (controller === controller2) {
+  // Only handle painting for controller2 (right controller) when painter tool is active and not grabbing
+  if (controller === controller2 && !grabbedModel) {
     if (currentTool === 0) { // Painter tool
       if (userData.isSqueezing === true) {
         const delta = (controller.position.y - userData.positionAtSqueezeStart) * 5;
@@ -788,6 +934,9 @@ function render() {
   
   // Update measurement text orientations to always face camera
   updateMeasurementTextOrientation();
+  
+  // Update grabbed model position/rotation
+  updateGrabbedModel();
   
   handleController(controller1);
   handleController(controller2);
