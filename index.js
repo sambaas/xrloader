@@ -10,10 +10,13 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 // Import assets so Parcel includes them in the build
 import closetObjUrl from "./assets/closet.obj";
 import exampleCubeObjUrl from "./assets/example-cube.obj";
-// Note: Cannot directly use the ARButton as it calls immersive-ar with dom and "local" reference space
-// import { ARButton } from "three/examples/jsm/webxr/ARButton";
 
-let camera, scene, renderer;
+// =====================================
+// GLOBAL VARIABLES
+// =====================================
+
+// Core Three.js variables
+let camera, scene, renderer, controls;
 let controller1, controller2;
 let currentSession;
 const cursor = new THREE.Vector3();
@@ -42,12 +45,6 @@ const tools = ['Painter', 'Measurement', 'Block'];
 let thumbstickCooldown = 0;
 let toolIndicatorMesh = null;
 
-// Block tool variables
-let blockPreview = null;
-let blockDimensions = { width: 0.2, height: 0.2, depth: 0.2 }; // Default 20cm cube
-let placedBlocks = [];
-let isPlacingBlock = false;
-
 // Measurement tool variables
 let measurementLines = [];
 let currentMeasurementLine = null;
@@ -57,7 +54,15 @@ let measurementStartPoint = null;
 let isPlacingMeasurement = false;
 const snapDistance = 0.02; // 2cm snap distance
 
-let controls;
+// Block tool variables
+let blockPreview = null;
+let blockDimensions = { width: 0.2, height: 0.2, depth: 0.2 }; // Default 20cm cube
+let placedBlocks = [];
+let isPlacingBlock = false;
+
+// =====================================
+// INITIALIZATION
+// =====================================
 
 init();
 animate();
@@ -367,12 +372,20 @@ function init() {
   arButton.onclick = startAR;
 }
 
+// =====================================
+// CORE FUNCTIONS
+// =====================================
+
 function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
 
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
+
+// =====================================
+// TOOL INDICATOR SYSTEM
+// =====================================
 
 function createToolIndicator() {
   // Create a canvas-based text indicator for the current tool
@@ -409,6 +422,10 @@ function createToolIndicator() {
   // Add to controller2 so it moves with the controller
   controller2.add(toolIndicatorMesh);
 }
+
+// =====================================
+// MEASUREMENT TOOL SYSTEM
+// =====================================
 
 function createMeasurementText(distance, midpoint, isPreview = false) {
   // Create measurement text
@@ -466,6 +483,10 @@ function updateMeasurementTextOrientation() {
     measurementPreviewText.lookAt(cameraPosition);
   }
 }
+
+// =====================================
+// GRAB SYSTEM
+// =====================================
 
 function findClosestModel(controller) {
   if (!placedModel) return null;
@@ -595,6 +616,10 @@ function updateGrabbedModel() {
     grabbedModel.position.copy(controllerPos.add(grabOffset2));
   }
 }
+
+// =====================================
+// BLOCK TOOL SYSTEM
+// =====================================
 
 function createBlockPreview() {
   if (blockPreview) {
@@ -941,6 +966,10 @@ function switchTool(direction) {
   thumbstickCooldown = 0.5; // 500ms cooldown
 }
 
+// =====================================
+// MODEL PLACEMENT SYSTEM
+// =====================================
+
 function handleModelPlacement() {
   if (!loadedModel) return;
   
@@ -1006,6 +1035,10 @@ function updatePlacementIndicator() {
     modelPlacementIndicator.visible = false;
   }
 }
+
+// =====================================
+// INPUT HANDLING
+// =====================================
 
 function handleModelRotation() {
   if (!placedModel || !currentSession) return;
@@ -1100,6 +1133,10 @@ function handleMeasurementEnd() {
   }
 }
 
+// =====================================
+// RENDERING & ANIMATION
+// =====================================
+
 function handleController(controller) {
   const userData = controller.userData;
   const painter = userData.painter;
@@ -1181,6 +1218,10 @@ function render() {
 
   renderer.render(scene, camera);
 }
+
+// =====================================
+// WEBXR SESSION MANAGEMENT
+// =====================================
 
 // Note: Added WebXR session handling features
 // From vr-paint example and VRButton.js
