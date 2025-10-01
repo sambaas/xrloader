@@ -52,6 +52,10 @@ let thumbstickCooldown = 0;
 let buttonCooldown = 0;
 let toolIndicatorMesh = null;
 
+// Paint group tracking
+let paintGroups = []; // Array to store all paint group meshes
+let activePaintGroups = new Map(); // Track active paint groups per controller
+
 // Measurement tool variables
 let measurementLines = [];
 let currentMeasurementLine = null;
@@ -196,9 +200,12 @@ function init() {
   function onSelectStart() {
     this.userData.isSelecting = true;
     
-    // Left controller (controller1) - model placement
+    // Left controller (controller1) - model placement (but only when not actively painting)
     if (this === controller1 && availableModels.length > 0) {
-      handleModelPlacement();
+      // Don't place models if we're actively painting
+      if (!activePaintGroups.has(this)) {
+        handleModelPlacement();
+      }
     }
     
     // Right controller (controller2) - tool usage
@@ -486,6 +493,61 @@ function updateMeasurementTextOrientation() {
     camera.getWorldPosition(cameraPosition);
     measurementPreviewText.lookAt(cameraPosition);
   }
+}
+
+// =====================================
+// PAINT GROUP MANAGEMENT
+// =====================================
+
+function startPaintGroup(controller, painter) {
+  // Create a new group to hold this paint stroke
+  const paintGroup = new THREE.Group();
+  paintGroup.userData = {
+    controller: controller,
+    painter: painter,
+    startTime: Date.now(),
+    isActive: true
+  };
+  
+  // Store reference to the active paint group
+  activePaintGroups.set(controller, paintGroup);
+  
+  console.log('Started new paint group');
+}
+
+function endPaintGroup(controller) {
+  const paintGroup = activePaintGroups.get(controller);
+  if (!paintGroup) return;
+  
+  const painter = paintGroup.userData.painter;
+  
+  // Clone the current painter mesh and add it to our group
+  if (painter.mesh && painter.mesh.geometry && painter.mesh.geometry.attributes.position) {
+    const paintMesh = painter.mesh.clone();
+    
+    // Create a unique geometry for this paint group by copying current state
+    const geometry = painter.mesh.geometry.clone();
+    paintMesh.geometry = geometry;
+    
+    // Add the paint mesh to our group
+    paintGroup.add(paintMesh);
+    
+    // Add the group to scene and track it
+    scene.add(paintGroup);
+    paintGroups.push(paintGroup);
+    
+    // Clear the painter's mesh for the next stroke
+    painter.mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    painter.mesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+    painter.mesh.geometry.attributes.position.needsUpdate = true;
+    painter.mesh.geometry.attributes.color.needsUpdate = true;
+  }
+  
+  // Remove from active groups
+  activePaintGroups.delete(controller);
+  paintGroup.userData.isActive = false;
+  
+  console.log('Ended paint group, total groups:', paintGroups.length);
 }
 
 // =====================================
@@ -1015,105 +1077,56 @@ function removePlacedModel(model) {
   return true;
 }
 
-function findClosestPaintSegment(controllerPosition) {
-  let closestPaintSegment = null;
+function findClosestPaintGroup(controllerPosition) {
+  let closestPaintGroup = null;
   let closestDistance = Infinity;
   
-  // Check both painters
-  const painters = [controller1.userData.painter, controller2.userData.painter];
-  
-  for (let painter of painters) {
-    if (!painter || !painter.mesh) continue;
+  for (let paintGroup of paintGroups) {
+    if (!paintGroup.children.length) continue;
     
-    // Get the paint mesh geometry
-    const paintMesh = painter.mesh;
-    if (!paintMesh.geometry || !paintMesh.geometry.attributes.position) continue;
-    
-    const positions = paintMesh.geometry.attributes.position;
-    const pointCount = positions.count;
-    
-    // Check points in the paint geometry - sample more frequently for better detection
-    for (let i = 0; i < pointCount; i++) { // Check every point, not every 3rd
-      const point = new THREE.Vector3(
-        positions.getX(i),
-        positions.getY(i),
-        positions.getZ(i)
-      );
+    // Check each paint mesh in the group
+    for (let paintMesh of paintGroup.children) {
+      if (!paintMesh.geometry || !paintMesh.geometry.attributes.position) continue;
       
-      // Transform to world space
-      point.applyMatrix4(paintMesh.matrixWorld);
+      // Create bounding box for the paint mesh
+      const boundingBox = new THREE.Box3().setFromObject(paintMesh);
       
-      const distance = controllerPosition.distanceTo(point);
+      // Check if controller position is inside the bounding box
+      if (boundingBox.containsPoint(controllerPosition)) {
+        return { group: paintGroup, distance: 0 }; // Inside the paint
+      }
+      
+      // If not inside, calculate distance to the bounding box
+      const closestPoint = boundingBox.clampPoint(controllerPosition, new THREE.Vector3());
+      const distance = controllerPosition.distanceTo(closestPoint);
       
       if (distance < closestDistance) {
         closestDistance = distance;
-        closestPaintSegment = {
-          painter: painter,
-          pointIndex: i, // Use point index instead of segment index
-          distance: distance,
-          point: point
-        };
+        closestPaintGroup = paintGroup;
       }
     }
   }
   
-  return closestPaintSegment;
+  return { group: closestPaintGroup, distance: closestDistance };
 }
 
-function removePaintSegment(painter, pointIndex) {
-  if (!painter || !painter.mesh || !painter.mesh.geometry) return false;
+function removePaintGroup(paintGroup) {
+  if (!paintGroup) return false;
   
   try {
-    // Get current geometry
-    const geometry = painter.mesh.geometry;
-    const positions = geometry.attributes.position;
-    const colors = geometry.attributes.color;
+    // Remove from scene
+    scene.remove(paintGroup);
     
-    if (!positions || !colors) return false;
-    
-    const pointCount = positions.count;
-    if (pointIndex >= pointCount) return false;
-    
-    // Create new arrays without the target point and nearby points
-    const removalRadius = 15; // Remove points within this radius of the target
-    const newPositions = [];
-    const newColors = [];
-    
-    for (let i = 0; i < pointCount; i++) {
-      const distance = Math.abs(i - pointIndex);
-      
-      // Skip points within removal radius
-      if (distance > removalRadius) {
-        newPositions.push(
-          positions.getX(i),
-          positions.getY(i),
-          positions.getZ(i)
-        );
-        newColors.push(
-          colors.getR(i),
-          colors.getG(i),
-          colors.getB(i)
-        );
-      }
+    // Remove from paintGroups array
+    const index = paintGroups.indexOf(paintGroup);
+    if (index > -1) {
+      paintGroups.splice(index, 1);
     }
     
-    // Update geometry with new arrays
-    if (newPositions.length > 0) {
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
-      geometry.setAttribute('color', new THREE.Float32BufferAttribute(newColors, 3));
-      geometry.attributes.position.needsUpdate = true;
-      geometry.attributes.color.needsUpdate = true;
-      geometry.computeBoundingSphere();
-      geometry.computeBoundingBox();
-    } else {
-      // If no points left, clear the geometry
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
-      geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-    }
-    
+    console.log('Removed paint group, remaining groups:', paintGroups.length);
     return true;
   } catch (error) {
-    console.error('Error removing paint segment:', error);
+    console.error('Error removing paint group:', error);
     return false;
   }
 }
@@ -1260,27 +1273,30 @@ function handleEraserAction() {
   const controllerPosition = new THREE.Vector3();
   controller2.getWorldPosition(controllerPosition);
   
-  // Find closest measurement line, model, and paint segments
+  // Find closest measurement line, model, and paint groups
   const closestLineResult = findClosestMeasurementLine(controllerPosition);
   const closestModelResult = findClosestPlacedModel(controllerPosition);
-  const closestPaintSegment = findClosestPaintSegment(controllerPosition);
+  const closestPaintGroupResult = findClosestPaintGroup(controllerPosition);
   
   // Determine which is closer and remove it
   let lineDistance = closestLineResult ? closestLineResult.distance : Infinity;
   let modelDistance = closestModelResult ? closestModelResult.distance : Infinity;
-  let paintDistance = closestPaintSegment ? closestPaintSegment.distance : Infinity;
+  let paintDistance = closestPaintGroupResult ? closestPaintGroupResult.distance : Infinity;
   
   // Eraser range - but prioritize objects that contain the eraser point
   const eraserRange = 0.1; // 10cm range for eraser
-  const paintEraserRange = 0.08; // 8cm range for paint (increased for better detection)
+  const paintEraserRange = 0.08; // 8cm range for paint groups
   
   // Check if eraser is inside any object (distance = 0 means inside)
   if (modelDistance === 0) {
     removePlacedModel(closestModelResult.model);
     console.log('Erased placed model (inside bounds)');
-  } else if (paintDistance < lineDistance && paintDistance < modelDistance && closestPaintSegment && paintDistance < paintEraserRange) {
-    removePaintSegment(closestPaintSegment.painter, closestPaintSegment.pointIndex);
-    console.log('Erased paint segment');
+  } else if (paintDistance === 0) {
+    removePaintGroup(closestPaintGroupResult.group);
+    console.log('Erased paint group (inside bounds)');
+  } else if (paintDistance < lineDistance && paintDistance < modelDistance && closestPaintGroupResult && closestPaintGroupResult.group && paintDistance < paintEraserRange) {
+    removePaintGroup(closestPaintGroupResult.group);
+    console.log('Erased paint group');
   } else if (lineDistance < modelDistance && closestLineResult && closestLineResult.line && lineDistance < eraserRange) {
     removeMeasurementLine(closestLineResult.line);
     console.log('Erased measurement line');
@@ -1344,9 +1360,10 @@ function handleController(controller) {
 
   const pivot = controller.getObjectByName("pivot");
 
-  // Only handle painting for controller2 (right controller) when painter tool is active and not grabbing
-  if (controller === controller2 && !grabbedModel) {
-    if (currentTool === 0) { // Painter tool
+  // Handle painting for both controllers when painter tool is active and not grabbing
+  if (!grabbedModel) {
+    // Right controller - only when painter tool is active
+    if (controller === controller2 && currentTool === 0) {
       if (userData.isSqueezing === true) {
         const delta = (controller.position.y - userData.positionAtSqueezeStart) * 5;
         const scale = Math.max(0.1, userData.scaleAtSqueezeStart + delta);
@@ -1358,12 +1375,52 @@ function handleController(controller) {
       cursor.setFromMatrixPosition(pivot.matrixWorld);
 
       if (userData.isSelecting === true) {
+        // Start a new paint group if this is the beginning of a stroke
+        if (!activePaintGroups.has(controller)) {
+          startPaintGroup(controller, painter);
+        }
+        
         painter.lineTo(cursor);
         painter.update();
       } else {
+        // End the paint group when selection ends
+        if (activePaintGroups.has(controller)) {
+          endPaintGroup(controller);
+        }
         painter.moveTo(cursor);
       }
-    } else if (currentTool === 1 && isPlacingMeasurement) { // Measurement tool
+    } 
+    // Left controller - always available for painting (placement controller can also paint)
+    else if (controller === controller1) {
+      if (userData.isSqueezing === true) {
+        const delta = (controller.position.y - userData.positionAtSqueezeStart) * 5;
+        const scale = Math.max(0.1, userData.scaleAtSqueezeStart + delta);
+
+        pivot.scale.setScalar(scale);
+        painter.setSize(scale);
+      }
+
+      cursor.setFromMatrixPosition(pivot.matrixWorld);
+
+      if (userData.isSelecting === true) {
+        // Start a new paint group if this is the beginning of a stroke
+        if (!activePaintGroups.has(controller)) {
+          startPaintGroup(controller, painter);
+        }
+        
+        painter.lineTo(cursor);
+        painter.update();
+      } else {
+        // End the paint group when selection ends
+        if (activePaintGroups.has(controller)) {
+          endPaintGroup(controller);
+        }
+        painter.moveTo(cursor);
+      }
+    }
+    
+    // Right controller - other tools
+    if (controller === controller2 && currentTool === 1 && isPlacingMeasurement) {
       updateMeasurementPreview(controller);
     }
   }
