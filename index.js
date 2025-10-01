@@ -37,10 +37,16 @@ let initialControllerDistance = 0;
 let initialControllerAngle = 0;
 
 // Tool system variables
-let currentTool = 0; // 0 = painter, 1 = measurement
-const tools = ['Painter', 'Measurement'];
+let currentTool = 0; // 0 = painter, 1 = measurement, 2 = block
+const tools = ['Painter', 'Measurement', 'Block'];
 let thumbstickCooldown = 0;
 let toolIndicatorMesh = null;
+
+// Block tool variables
+let blockPreview = null;
+let blockDimensions = { width: 0.2, height: 0.2, depth: 0.2 }; // Default 20cm cube
+let placedBlocks = [];
+let isPlacingBlock = false;
 
 // Measurement tool variables
 let measurementLines = [];
@@ -195,6 +201,8 @@ function init() {
     if (this === controller2) {
       if (currentTool === 1) { // Measurement tool
         handleMeasurementStart();
+      } else if (currentTool === 2) { // Block tool
+        handleBlockPlacement();
       }
       // Painter tool is handled in handleController function
     }
@@ -296,12 +304,50 @@ function init() {
   measurementPivot.position.z = -0.08;
   measurementGroup.add(measurementPivot);
 
+  // Block tool - looks like a small cube/rectangular tool
+  const blockToolGroup = new THREE.Group();
+  
+  // Main handle
+  const blockHandleGeometry = new THREE.CylinderGeometry(0.008, 0.008, 0.1, 8);
+  blockHandleGeometry.rotateX(-Math.PI / 2);
+  const blockHandleMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x32CD32, // Lime green for block tool
+    flatShading: true,
+    roughness: 0.3,
+    metalness: 0.7
+  });
+  const blockHandleMesh = new THREE.Mesh(blockHandleGeometry, blockHandleMaterial);
+  blockHandleMesh.castShadow = true;
+  
+  // Block indicator at the tip
+  const blockIndicatorGeometry = new THREE.BoxGeometry(0.02, 0.02, 0.02);
+  const blockIndicatorMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x90EE90, // Light green
+    flatShading: true,
+    roughness: 0.2,
+    metalness: 0.8,
+    transparent: true,
+    opacity: 0.8
+  });
+  const blockIndicatorMesh = new THREE.Mesh(blockIndicatorGeometry, blockIndicatorMaterial);
+  blockIndicatorMesh.position.z = -0.08;
+  blockIndicatorMesh.castShadow = true;
+  
+  blockToolGroup.add(blockHandleMesh);
+  blockToolGroup.add(blockIndicatorMesh);
+  
+  const blockPivot = new THREE.Mesh(new THREE.IcosahedronGeometry(0.005, 3));
+  blockPivot.name = "pivot";
+  blockPivot.position.z = -0.08;
+  blockToolGroup.add(blockPivot);
+
   // Add tools to controllers
   controller1.add(painterMesh.clone());
   
   // Right controller gets the active tool mesh
   controller2.userData.painterTool = painterMesh;
   controller2.userData.measurementTool = measurementGroup;
+  controller2.userData.blockTool = blockToolGroup;
   controller2.userData.currentToolMesh = painterMesh.clone();
   controller2.add(controller2.userData.currentToolMesh);
 
@@ -546,6 +592,129 @@ function updateGrabbedModel() {
   }
 }
 
+function createBlockPreview() {
+  if (blockPreview) {
+    scene.remove(blockPreview);
+  }
+  
+  const geometry = new THREE.BoxGeometry(blockDimensions.width, blockDimensions.height, blockDimensions.depth);
+  const material = new THREE.MeshStandardMaterial({ 
+    color: 0x32CD32,
+    transparent: true,
+    opacity: 0.5,
+    roughness: 0.3,
+    metalness: 0.7
+  });
+  
+  blockPreview = new THREE.Mesh(geometry, material);
+  blockPreview.castShadow = true;
+  blockPreview.receiveShadow = true;
+  scene.add(blockPreview);
+}
+
+function updateBlockPreview(controller) {
+  if (!blockPreview) {
+    createBlockPreview();
+  }
+  
+  // Get controller position and direction
+  const tempMatrix = new THREE.Matrix4();
+  tempMatrix.identity().extractRotation(controller.matrixWorld);
+  
+  raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+  raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+  
+  // Check intersection with floor and other objects
+  const intersects = raycaster.intersectObjects(scene.children, true);
+  
+  let foundHit = false;
+  for (let i = 0; i < intersects.length; i++) {
+    const intersection = intersects[i];
+    
+    // Skip if hitting the preview itself or tool indicators
+    if (intersection.object === blockPreview || 
+        intersection.object.parent === controller ||
+        intersection.object === toolIndicatorMesh) {
+      continue;
+    }
+    
+    // Position the preview at the intersection point
+    blockPreview.position.copy(intersection.point);
+    blockPreview.position.y += blockDimensions.height / 2; // Center the block on the surface
+    blockPreview.visible = true;
+    foundHit = true;
+    break;
+  }
+  
+  if (!foundHit) {
+    blockPreview.visible = false;
+  }
+}
+
+function handleBlockPlacement() {
+  if (!blockPreview || !blockPreview.visible) return;
+  
+  // Create a permanent block at the preview position
+  const geometry = new THREE.BoxGeometry(blockDimensions.width, blockDimensions.height, blockDimensions.depth);
+  const material = new THREE.MeshStandardMaterial({ 
+    color: 0x32CD32,
+    roughness: 0.3,
+    metalness: 0.7
+  });
+  
+  const block = new THREE.Mesh(geometry, material);
+  block.position.copy(blockPreview.position);
+  block.castShadow = true;
+  block.receiveShadow = true;
+  
+  scene.add(block);
+  placedBlocks.push(block);
+  
+  console.log(`Placed block: ${blockDimensions.width}×${blockDimensions.height}×${blockDimensions.depth}m`);
+}
+
+function adjustBlockDimensions(inputSource) {
+  if (!inputSource.gamepad || inputSource.handedness !== 'right') return;
+  
+  const gamepad = inputSource.gamepad;
+  if (gamepad.axes.length >= 4) {
+    const thumbstickY = gamepad.axes[3]; // Y axis for height
+    
+    // Adjust height with right thumbstick Y (up/down)
+    if (Math.abs(thumbstickY) > 0.3) {
+      const adjustment = thumbstickY * 0.002; // 2mm per frame
+      blockDimensions.height = Math.max(0.05, Math.min(2.0, blockDimensions.height + adjustment));
+    }
+  }
+  
+  // Use buttons for width and depth adjustment
+  if (gamepad.buttons.length > 4) {
+    // A button (button 0) - increase width
+    if (gamepad.buttons[0].pressed) {
+      blockDimensions.width = Math.min(2.0, blockDimensions.width + 0.002);
+    }
+    // B button (button 1) - decrease width  
+    if (gamepad.buttons[1].pressed) {
+      blockDimensions.width = Math.max(0.05, blockDimensions.width - 0.002);
+    }
+    // X button (button 2) - increase depth
+    if (gamepad.buttons[2].pressed) {
+      blockDimensions.depth = Math.min(2.0, blockDimensions.depth + 0.002);
+    }
+    // Y button (button 3) - decrease depth
+    if (gamepad.buttons[3].pressed) {
+      blockDimensions.depth = Math.max(0.05, blockDimensions.depth - 0.002);
+    }
+  }
+  
+  // Update preview if it exists
+  if (blockPreview && currentTool === 2) {
+    scene.remove(blockPreview);
+    blockPreview = null;
+    createBlockPreview();
+  }
+}
+
 function updateToolIndicator() {
   if (!toolIndicatorMesh) return;
   
@@ -565,6 +734,8 @@ function updateToolIndicator() {
     context.fillStyle = '#4169E1'; // Blue for painter
   } else if (currentTool === 1) {
     context.fillStyle = '#FF6347'; // Red for measurement
+  } else if (currentTool === 2) {
+    context.fillStyle = '#32CD32'; // Green for block tool
   }
   
   context.font = 'bold 48px Arial';
@@ -712,6 +883,8 @@ function switchTool(direction) {
     controller2.userData.currentToolMesh = controller2.userData.painterTool.clone();
   } else if (currentTool === 1) { // Measurement tool
     controller2.userData.currentToolMesh = controller2.userData.measurementTool.clone();
+  } else if (currentTool === 2) { // Block tool
+    controller2.userData.currentToolMesh = controller2.userData.blockTool.clone();
   }
   
   controller2.add(controller2.userData.currentToolMesh);
@@ -728,6 +901,15 @@ function switchTool(direction) {
     }
     measurementStartPoint = null;
     isPlacingMeasurement = false;
+  }
+  
+  // Reset block state when switching tools
+  if (currentTool !== 2) {
+    if (blockPreview) {
+      scene.remove(blockPreview);
+      blockPreview = null;
+    }
+    isPlacingBlock = false;
   }
   
   thumbstickCooldown = 0.5; // 500ms cooldown
@@ -919,6 +1101,8 @@ function handleController(controller) {
       }
     } else if (currentTool === 1 && isPlacingMeasurement) { // Measurement tool
       updateMeasurementPreview(controller);
+    } else if (currentTool === 2) { // Block tool
+      updateBlockPreview(controller);
     }
   }
 }
@@ -957,6 +1141,17 @@ function render() {
   
   // Handle tool switching with right thumbstick
   handleToolSwitching();
+  
+  // Handle block dimension adjustments when using block tool
+  if (currentTool === 2 && currentSession) {
+    for (let i = 0; i < inputSources.length; i++) {
+      const inputSource = inputSources[i];
+      if (inputSource.gamepad && inputSource.handedness === 'right') {
+        adjustBlockDimensions(inputSource);
+        break;
+      }
+    }
+  }
 
   renderer.render(scene, camera);
 }
