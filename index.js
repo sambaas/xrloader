@@ -463,9 +463,61 @@ function findClosestModel(controller) {
   return closestModel;
 }
 
+function findClosestModelToBothControllers() {
+  if (placedModels.length === 0 || !controller1 || !controller2) return null;
+  
+  const pos1 = new THREE.Vector3();
+  const pos2 = new THREE.Vector3();
+  controller1.getWorldPosition(pos1);
+  controller2.getWorldPosition(pos2);
+  
+  // Calculate midpoint between controllers
+  const midpoint = new THREE.Vector3().addVectors(pos1, pos2).multiplyScalar(0.5);
+  
+  let closestModel = null;
+  let closestDistance = Infinity;
+  
+  for (let model of placedModels) {
+    const modelPosition = new THREE.Vector3();
+    model.getWorldPosition(modelPosition);
+    const distance = midpoint.distanceTo(modelPosition);
+    
+    // Only consider models within reasonable distance (3 meters from midpoint)
+    if (distance < 3.0 && distance < closestDistance) {
+      closestDistance = distance;
+      closestModel = model;
+    }
+  }
+  
+  return closestModel;
+}
+
 function handleGrabStart(controller) {
-  const model = findClosestModel(controller);
-  if (!model) return;
+  // When starting a grab, we need to determine which model to grab
+  let targetModel = null;
+  
+  // If this is the first controller to grab, find closest model to this controller
+  if (!grabController1 && !grabController2) {
+    targetModel = findClosestModel(controller);
+  } 
+  // If the other controller is already grabbing, we should grab the same model if it's reasonably close
+  else if (grabbedModel) {
+    const controllerPos = new THREE.Vector3();
+    controller.getWorldPosition(controllerPos);
+    const modelPos = new THREE.Vector3();
+    grabbedModel.getWorldPosition(modelPos);
+    const distance = controllerPos.distanceTo(modelPos);
+    
+    // Only grab the same model if it's within reasonable distance (3 meters)
+    if (distance < 3.0) {
+      targetModel = grabbedModel;
+    } else {
+      // Too far, grab closest model to this controller instead
+      targetModel = findClosestModel(controller);
+    }
+  }
+  
+  if (!targetModel) return;
   
   if (controller === controller1) {
     grabController1 = controller;
@@ -474,7 +526,7 @@ function handleGrabStart(controller) {
     const controllerPos = new THREE.Vector3();
     controller.getWorldPosition(controllerPos);
     const modelPos = new THREE.Vector3();
-    model.getWorldPosition(modelPos);
+    targetModel.getWorldPosition(modelPos);
     grabOffset1.subVectors(modelPos, controllerPos);
     
   } else if (controller === controller2) {
@@ -484,30 +536,30 @@ function handleGrabStart(controller) {
     const controllerPos = new THREE.Vector3();
     controller.getWorldPosition(controllerPos);
     const modelPos = new THREE.Vector3();
-    model.getWorldPosition(modelPos);
+    targetModel.getWorldPosition(modelPos);
     grabOffset2.subVectors(modelPos, controllerPos);
   }
   
-  // If this is the first grab or both controllers are now grabbing
-  if (!grabbedModel || (grabController1 && grabController2)) {
-    grabbedModel = model;
+  // Set or update the grabbed model
+  grabbedModel = targetModel;
+  
+  // Store initial state for dual-controller manipulation
+  if (grabController1 && grabController2) {
+    initialModelPosition.copy(grabbedModel.position);
+    initialModelRotation.copy(grabbedModel.rotation);
     
-    // Store initial state for dual-controller manipulation
-    if (grabController1 && grabController2) {
-      initialModelPosition.copy(model.position);
-      initialModelRotation.copy(model.rotation);
-      
-      const pos1 = new THREE.Vector3();
-      const pos2 = new THREE.Vector3();
-      grabController1.getWorldPosition(pos1);
-      grabController2.getWorldPosition(pos2);
-      
-      initialControllerDistance = pos1.distanceTo(pos2);
-      
-      // Calculate initial angle between controllers on XZ plane
-      const diff = new THREE.Vector3().subVectors(pos2, pos1);
-      initialControllerAngle = Math.atan2(diff.z, diff.x);
-    }
+    const pos1 = new THREE.Vector3();
+    const pos2 = new THREE.Vector3();
+    grabController1.getWorldPosition(pos1);
+    grabController2.getWorldPosition(pos2);
+    
+    initialControllerDistance = pos1.distanceTo(pos2);
+    
+    // Calculate initial angle between controllers on XZ plane
+    const diff = new THREE.Vector3().subVectors(pos2, pos1);
+    initialControllerAngle = Math.atan2(diff.z, diff.x);
+    
+    console.log('Dual-controller grab established for rotation');
   }
   
   console.log(`Grabbed model with ${controller === controller1 ? 'left' : 'right'} controller`);
@@ -819,8 +871,8 @@ function createModelPreview() {
     const currentModel = availableModels[currentModelIndex];
     modelPreview = currentModel.template.clone();
     
-    // Make preview smaller and semi-transparent
-    modelPreview.scale.setScalar(0.3);
+    // Make preview much smaller and semi-transparent
+    modelPreview.scale.setScalar(0.1); // 10% of original size
     modelPreview.position.set(0, 0.2, 0); // Position above controller
     
     // Make all materials semi-transparent for preview
@@ -1036,8 +1088,29 @@ function handleDeletion() {
     if (inputSource.gamepad) {
       const gamepad = inputSource.gamepad;
       
-      // Check if B button is pressed (button index 1)
-      if (gamepad.buttons.length > 1 && gamepad.buttons[1].pressed) {
+      // Debug: Log all button states when any button is pressed
+      for (let buttonIndex = 0; buttonIndex < gamepad.buttons.length; buttonIndex++) {
+        if (gamepad.buttons[buttonIndex].pressed) {
+          console.log(`Button ${buttonIndex} pressed on ${inputSource.handedness} controller`);
+        }
+      }
+      
+      // For Meta Quest controllers, B button is typically button index 1 (right controller) or 3 (left controller)
+      // Let's check both A (0) and B (1) buttons, and also X (2) and Y (3) for left controller
+      let bButtonPressed = false;
+      
+      if (inputSource.handedness === 'right') {
+        // Right controller: A = 0, B = 1
+        bButtonPressed = gamepad.buttons.length > 1 && gamepad.buttons[1].pressed;
+      } else if (inputSource.handedness === 'left') {
+        // Left controller: X = 0, Y = 1 (but sometimes different mapping)
+        // Try Y button (index 1) for left controller
+        bButtonPressed = gamepad.buttons.length > 1 && gamepad.buttons[1].pressed;
+      }
+      
+      if (bButtonPressed) {
+        console.log(`B/Y button pressed on ${inputSource.handedness} controller - DELETION TRIGGERED`);
+        
         // Get controller position
         const controller = inputSource.handedness === 'left' ? controller1 : controller2;
         if (controller) {
