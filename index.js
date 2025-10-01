@@ -617,11 +617,15 @@ function updateBlockPreview(controller) {
     createBlockPreview();
   }
   
-  // Get controller position and direction
+  // Get the tip position from the block tool (similar to measurement tool)
+  const tipPosition = new THREE.Vector3(0, 0, -0.08);
+  tipPosition.applyMatrix4(controller.matrixWorld);
+  
+  // Get controller direction
   const tempMatrix = new THREE.Matrix4();
   tempMatrix.identity().extractRotation(controller.matrixWorld);
   
-  raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+  raycaster.ray.origin.copy(tipPosition);
   raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
   
   // Check intersection with floor and other objects
@@ -631,10 +635,11 @@ function updateBlockPreview(controller) {
   for (let i = 0; i < intersects.length; i++) {
     const intersection = intersects[i];
     
-    // Skip if hitting the preview itself or tool indicators
+    // Skip if hitting the preview itself, tool indicators, or controller meshes
     if (intersection.object === blockPreview || 
         intersection.object.parent === controller ||
-        intersection.object === toolIndicatorMesh) {
+        intersection.object === toolIndicatorMesh ||
+        intersection.object.material?.transparent) {
       continue;
     }
     
