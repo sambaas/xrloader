@@ -2,6 +2,14 @@
 
 This project supports both local development and GitHub Pages deployment with different build scripts.
 
+## Project Structure
+
+- `assets/` - Static assets like .obj files that need to be included in builds
+- `dist/` - Build output directory (generated)
+- `index.js` - Main application code
+- `index.html` - HTML entry point
+- `style.css` - Styles
+
 ## Local Development
 
 For local development, use:
@@ -29,6 +37,16 @@ This build includes the `/xrloader/` public URL prefix needed for GitHub Pages.
 - `npm run build:local` - Production build for local serving (relative paths)
 - `npm run build:gh-pages` - Production build for GitHub Pages (with /xrloader/ prefix)
 - `npm run clean` - Remove dist and cache folders
+
+## Asset Management
+
+Static assets like `.obj` files are stored in the `assets/` directory and imported in the JavaScript code:
+
+```javascript
+import closetObjUrl from "./assets/closet.obj";
+```
+
+This ensures Parcel includes them in the build with proper hashing and path resolution.
 
 ## Workflow
 
