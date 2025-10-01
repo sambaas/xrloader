@@ -90,15 +90,13 @@ function init() {
   controls.update();
 
   const floorGometry = new THREE.PlaneGeometry(100, 100);
-  const floorMaterial = new THREE.MeshStandardMaterial({
-    color: 0x222222,
-    roughness: 1.0,
-    metalness: 0.0,
-    transparent: true,
-    opacity: 0.0,
-    // Make sure the floor is still raycastable even when invisible
-    side: THREE.DoubleSide
+  
+  // Create a shadow-only material using ShadowMaterial
+  const floorMaterial = new THREE.ShadowMaterial({
+    opacity: 0.3, // Adjust shadow darkness (0 = invisible, 1 = black)
+    transparent: true
   });
+  
   const floor = new THREE.Mesh(floorGometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true; // Floor receives shadows
