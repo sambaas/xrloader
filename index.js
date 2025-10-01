@@ -77,9 +77,8 @@ function init() {
   // Load the closet.obj model
   const objLoader = new OBJLoader();
   objLoader.load(closetObjUrl, function(object) {
-    // Scale and position the loaded model
-    object.scale.setScalar(0.5); // Adjust scale as needed
-    object.position.set(0, 0, -2); // Place in front of viewer initially
+    // Set scale to 1.0 so 1 OBJ unit = 1 meter in XR
+    object.scale.setScalar(1.0);
     
     // Make sure the model has proper materials
     object.traverse(function(child) {
@@ -90,8 +89,8 @@ function init() {
       }
     });
     
+    // Store as template but don't add to scene yet
     loadedModel = object;
-    scene.add(object);
     console.log('Closet model loaded successfully');
   }, undefined, function(error) {
     console.error('Error loading closet model:', error);
@@ -221,18 +220,17 @@ function handleModelPlacement() {
     
     // Check if we hit the floor (assuming floor is at y = 0)
     if (intersection.point.y <= 0.1) {
-      // Place the model at the intersection point
-      if (placedModel) {
-        scene.remove(placedModel);
+      // If model isn't in scene yet, add it
+      if (!placedModel) {
+        placedModel = loadedModel;
+        scene.add(placedModel);
       }
       
-      // Clone the loaded model for placement
-      placedModel = loadedModel.clone();
+      // Move the model to the intersection point
       placedModel.position.copy(intersection.point);
       placedModel.position.y = 0; // Ensure it's on the floor
-      scene.add(placedModel);
       
-      console.log('Model placed at:', intersection.point);
+      console.log('Model moved to:', intersection.point);
       break;
     }
   }
