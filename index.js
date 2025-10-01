@@ -72,10 +72,7 @@ function init() {
   document.body.appendChild(container);
 
   scene = new THREE.Scene();
-  // Note: We need background to be transparent
-  // for passthrough to work!
-
-  // scene.background = new THREE.Color(0x222222);
+  // Note: We need background to be transparent for passthrough to work!
 
   camera = new THREE.PerspectiveCamera(
     50,
@@ -103,10 +100,6 @@ function init() {
   // Add a name to identify the floor for debugging
   floor.name = 'floor';
   scene.add(floor);
-
-  /*const grid = new THREE.GridHelper(10, 20, 0x111111, 0x111111);
-  grid.material.depthTest = false; // avoid z-fighting
-  scene.add(grid);*/
 
   scene.add(new THREE.HemisphereLight(0x888877, 0x777788, 0.4)); // Reduced intensity for ambient
 
@@ -168,15 +161,12 @@ function init() {
   modelPlacementIndicator.visible = false;
   scene.add(modelPlacementIndicator);
 
-  //
-
   const painter1 = new TubePainter();
   scene.add(painter1.mesh);
 
   const painter2 = new TubePainter();
   scene.add(painter2.mesh);
 
-  //
   // Note: Need alpha enabled for passthrough
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
@@ -190,12 +180,7 @@ function init() {
   
   container.appendChild(renderer.domElement);
 
-  //
-
-  // document.body.appendChild(ARButton.createButton(renderer));
-
-  // controllers
-
+  // Controllers
   function onSelectStart() {
     this.userData.isSelecting = true;
     
@@ -255,8 +240,6 @@ function init() {
   controller2.addEventListener("squeezeend", onSqueezeEnd);
   controller2.userData.painter = painter2;
   scene.add(controller2);
-
-  //
 
   // Create different tool meshes
   const painterGeometry = new THREE.CylinderGeometry(0.01, 0.02, 0.08, 5);
@@ -361,11 +344,9 @@ function init() {
   // Create tool indicator now that controller2 exists
   createToolIndicator();
 
-  //
-
   window.addEventListener("resize", onWindowResize);
 
-  // Note: Click HTMl button to start session
+  // Note: Click HTML button to start session
   let arButton = document.querySelector("button");
   arButton.onclick = startAR;
 }
@@ -1240,7 +1221,6 @@ function startAR() {
 async function onSessionStarted(session) {
   session.addEventListener("end", onSessionEnded);
   session.addEventListener("inputsourceschange", onInputSourcesChange);
-  //renderer.xr.setReferenceSpaceType("local");
   await renderer.xr.setSession(session);
   currentSession = session;
 }
