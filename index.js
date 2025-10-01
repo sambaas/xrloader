@@ -536,8 +536,21 @@ function endPaintGroup(controller) {
     scene.add(paintGroup);
     paintGroups.push(paintGroup);
     
-    // Reset the painter for the next stroke instead of clearing geometry
-    painter.reset();
+    // Properly reset the painter for the next stroke
+    // Create new empty geometry instead of using reset()
+    const newGeometry = new THREE.BufferGeometry();
+    newGeometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
+    newGeometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
+    
+    painter.mesh.geometry.dispose(); // Clean up old geometry
+    painter.mesh.geometry = newGeometry;
+    
+    // Reset internal state
+    painter.count = 0;
+    painter.vector1 = new THREE.Vector3();
+    painter.vector2 = new THREE.Vector3();
+    painter.vector3 = new THREE.Vector3();
+    painter.vector4 = new THREE.Vector3();
   }
   
   // Remove from active groups
