@@ -13,8 +13,7 @@ class CustomPainter {
     this.mesh = null;
     this.geometry = null;
     this.material = null;
-    this.positions = [];
-    this.colors = [];
+    this.points = []; // Store actual 3D points along the path
     this.size = 0.01;
     this.color = new THREE.Color(0.5, 0.5, 1);
     this.isDrawing = false;
@@ -25,18 +24,21 @@ class CustomPainter {
   }
   
   init() {
-    // Create geometry with initial capacity
+    // Create geometry
     this.geometry = new THREE.BufferGeometry();
     
-    // Create material
-    this.material = new THREE.MeshBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.8
+    // Create material with better visibility
+    this.material = new THREE.MeshStandardMaterial({
+      color: this.color,
+      transparent: false,
+      metalness: 0.1,
+      roughness: 0.7
     });
     
     // Create mesh
     this.mesh = new THREE.Mesh(this.geometry, this.material);
+    this.mesh.castShadow = true;
+    this.mesh.receiveShadow = true;
     
     // Initialize empty buffers
     this.updateGeometry();
@@ -52,6 +54,7 @@ class CustomPainter {
     } else {
       this.color.setHex(color);
     }
+    this.material.color.copy(this.color);
   }
   
   moveTo(position) {
@@ -62,30 +65,15 @@ class CustomPainter {
   lineTo(position) {
     if (!this.isDrawing) {
       this.isDrawing = true;
-      this.addPoint(this.lastPosition);
+      // Add the first point
+      this.points.push(this.lastPosition.clone());
     }
     
     // Only add point if we've moved enough distance
     const distance = position.distanceTo(this.lastPosition);
     if (distance > this.segmentLength) {
-      this.addPoint(position);
+      this.points.push(position.clone());
       this.lastPosition.copy(position);
-    }
-  }
-  
-  addPoint(position) {
-    const segments = 8; // Number of segments around the tube
-    const radius = this.size;
-    
-    // Generate points around the tube circumference
-    for (let i = 0; i < segments; i++) {
-      const angle = (i / segments) * Math.PI * 2;
-      const x = position.x + Math.cos(angle) * radius;
-      const y = position.y + Math.sin(angle) * radius;
-      const z = position.z;
-      
-      this.positions.push(x, y, z);
-      this.colors.push(this.color.r, this.color.g, this.color.b);
     }
   }
   
@@ -94,45 +82,43 @@ class CustomPainter {
   }
   
   updateGeometry() {
-    if (this.positions.length === 0) {
-      // Create minimal empty geometry
+    if (this.points.length < 2) {
+      // Not enough points to create geometry
       this.geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
-      this.geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
       this.geometry.setDrawRange(0, 0);
       return;
     }
     
-    // Update position attribute
-    this.geometry.setAttribute('position', new THREE.Float32BufferAttribute(this.positions, 3));
-    this.geometry.setAttribute('color', new THREE.Float32BufferAttribute(this.colors, 3));
+    // Create tube geometry from points
+    const tubeGeometry = this.createTubeFromPoints();
     
-    // Generate indices for triangle strips
-    const indices = [];
-    const pointsPerRing = 8;
-    const rings = Math.floor(this.positions.length / (pointsPerRing * 3));
+    // Copy attributes from tube geometry to our geometry
+    this.geometry.setAttribute('position', tubeGeometry.getAttribute('position'));
+    this.geometry.setAttribute('normal', tubeGeometry.getAttribute('normal'));
+    this.geometry.setAttribute('uv', tubeGeometry.getAttribute('uv'));
+    this.geometry.setIndex(tubeGeometry.getIndex());
     
-    for (let ring = 0; ring < rings - 1; ring++) {
-      for (let i = 0; i < pointsPerRing; i++) {
-        const current = ring * pointsPerRing + i;
-        const next = ring * pointsPerRing + ((i + 1) % pointsPerRing);
-        const nextRing = (ring + 1) * pointsPerRing + i;
-        const nextRingNext = (ring + 1) * pointsPerRing + ((i + 1) % pointsPerRing);
-        
-        // Two triangles per segment
-        indices.push(current, next, nextRing);
-        indices.push(next, nextRingNext, nextRing);
-      }
-    }
-    
-    this.geometry.setIndex(indices);
-    this.geometry.computeVertexNormals();
+    // Update the geometry
     this.geometry.attributes.position.needsUpdate = true;
-    this.geometry.attributes.color.needsUpdate = true;
+    this.geometry.attributes.normal.needsUpdate = true;
+    
+    // Clean up temporary geometry
+    tubeGeometry.dispose();
+  }
+  
+  createTubeFromPoints() {
+    // Create a curve from our points
+    const curve = new THREE.CatmullRomCurve3(this.points);
+    
+    // Create tube geometry
+    const segments = Math.max(2, this.points.length * 2); // More segments for smoother curves
+    const radialSegments = 8; // Number of sides around the tube
+    
+    return new THREE.TubeGeometry(curve, segments, this.size, radialSegments, false);
   }
   
   reset() {
-    this.positions = [];
-    this.colors = [];
+    this.points = [];
     this.isDrawing = false;
     this.updateGeometry();
   }
@@ -661,7 +647,7 @@ function endPaintGroup(controller) {
   const painter = paintGroup.userData.painter;
   
   // Clone the current painter mesh and add it to our group
-  if (painter.mesh && painter.positions.length > 0) {
+  if (painter.mesh && painter.points.length > 1) {
     // Create a complete copy of the current geometry for the paint group
     const clonedGeometry = painter.geometry.clone();
     const paintMesh = painter.mesh.clone();
