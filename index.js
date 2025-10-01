@@ -570,8 +570,8 @@ function updateGrabbedModel() {
     const diff = new THREE.Vector3().subVectors(pos2, pos1);
     const currentAngle = Math.atan2(diff.z, diff.x);
     
-    // Apply rotation difference
-    const angleDiff = currentAngle - initialControllerAngle;
+    // Apply rotation difference (reversed direction)
+    const angleDiff = initialControllerAngle - currentAngle;
     grabbedModel.rotation.y = initialModelRotation.y + angleDiff;
     
     // Optional: Scale based on distance change (uncomment if desired)
