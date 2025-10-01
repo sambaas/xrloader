@@ -76,16 +76,30 @@ function init() {
   });
   const floor = new THREE.Mesh(floorGometry, floorMaterial);
   floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true; // Floor receives shadows
   scene.add(floor);
 
   /*const grid = new THREE.GridHelper(10, 20, 0x111111, 0x111111);
   grid.material.depthTest = false; // avoid z-fighting
   scene.add(grid);*/
 
-  scene.add(new THREE.HemisphereLight(0x888877, 0x777788));
+  scene.add(new THREE.HemisphereLight(0x888877, 0x777788, 0.4)); // Reduced intensity for ambient
 
-  const light = new THREE.DirectionalLight(0xffffff, 0.5);
-  light.position.set(0, 4, 0);
+  const light = new THREE.DirectionalLight(0xffffff, 0.8); // Increased intensity
+  light.position.set(5, 10, 5); // Better shadow casting position
+  light.castShadow = true;
+  
+  // Configure shadow properties for better quality
+  light.shadow.mapSize.width = 2048;
+  light.shadow.mapSize.height = 2048;
+  light.shadow.camera.near = 0.5;
+  light.shadow.camera.far = 50;
+  light.shadow.camera.left = -10;
+  light.shadow.camera.right = 10;
+  light.shadow.camera.top = 10;
+  light.shadow.camera.bottom = -10;
+  light.shadow.bias = -0.0001; // Reduce shadow acne
+  
   scene.add(light);
 
   // Load the closet.obj model
@@ -94,10 +108,16 @@ function init() {
     // Set scale to 1.0 so 1 OBJ unit = 1 meter in XR
     object.scale.setScalar(1.0);
     
-    // Make sure the model has proper materials
+    // Make sure the model has proper materials with enhanced shading
     object.traverse(function(child) {
       if (child.isMesh) {
-        child.material = new THREE.MeshStandardMaterial({ color: 0x8B4513 }); // Brown color
+        child.material = new THREE.MeshStandardMaterial({ 
+          color: 0x8B4513, // Brown color
+          roughness: 0.7,
+          metalness: 0.1,
+          // Add some ambient occlusion-like effect
+          aoMapIntensity: 0.5
+        });
         child.castShadow = true;
         child.receiveShadow = true;
       }
@@ -138,6 +158,11 @@ function init() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.xr.enabled = true;
+  
+  // Enable shadows
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
+  
   container.appendChild(renderer.domElement);
 
   //
@@ -205,9 +230,12 @@ function init() {
   painterGeometry.rotateX(-Math.PI / 2);
   const painterMaterial = new THREE.MeshStandardMaterial({ 
     color: 0x4169E1, // Royal blue for painter
-    flatShading: true 
+    flatShading: true,
+    roughness: 0.3,
+    metalness: 0.8 // More metallic look
   });
   const painterMesh = new THREE.Mesh(painterGeometry, painterMaterial);
+  painterMesh.castShadow = true;
   
   const painterPivot = new THREE.Mesh(new THREE.IcosahedronGeometry(0.01, 3));
   painterPivot.name = "pivot";
@@ -222,19 +250,25 @@ function init() {
   rulerGeometry.rotateX(-Math.PI / 2);
   const rulerMaterial = new THREE.MeshStandardMaterial({ 
     color: 0xFF6347, // Tomato red for measurement tool
-    flatShading: true 
+    flatShading: true,
+    roughness: 0.4,
+    metalness: 0.6
   });
   const rulerMesh = new THREE.Mesh(rulerGeometry, rulerMaterial);
+  rulerMesh.castShadow = true;
   
   // Pointer tip
   const tipGeometry = new THREE.ConeGeometry(0.015, 0.03, 6);
   tipGeometry.rotateX(-Math.PI / 2);
   const tipMaterial = new THREE.MeshStandardMaterial({ 
     color: 0xFFD700, // Gold tip
-    flatShading: true 
+    flatShading: true,
+    roughness: 0.2,
+    metalness: 0.9 // Very metallic gold
   });
   const tipMesh = new THREE.Mesh(tipGeometry, tipMaterial);
   tipMesh.position.z = -0.08;
+  tipMesh.castShadow = true;
   
   measurementGroup.add(rulerMesh);
   measurementGroup.add(tipMesh);
