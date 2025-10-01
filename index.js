@@ -46,8 +46,8 @@ let initialControllerDistance = 0;
 let initialControllerAngle = 0;
 
 // Tool system variables
-let currentTool = 0; // 0 = painter, 1 = measurement
-const tools = ['Painter', 'Measurement'];
+let currentTool = 0; // 0 = painter, 1 = measurement, 2 = eraser
+const tools = ['Painter', 'Measurement', 'Eraser'];
 let thumbstickCooldown = 0;
 let buttonCooldown = 0;
 let toolIndicatorMesh = null;
@@ -205,6 +205,8 @@ function init() {
     if (this === controller2) {
       if (currentTool === 1) { // Measurement tool
         handleMeasurementStart();
+      } else if (currentTool === 2) { // Eraser tool
+        handleEraserAction();
       }
       // Painter tool is handled in handleController function
     }
@@ -304,12 +306,48 @@ function init() {
   measurementPivot.position.z = -0.08;
   measurementGroup.add(measurementPivot);
 
+  // Eraser tool - looks like a small cube/eraser
+  const eraserGroup = new THREE.Group();
+  
+  // Main handle
+  const eraserHandleGeometry = new THREE.CylinderGeometry(0.008, 0.008, 0.1, 8);
+  eraserHandleGeometry.rotateX(-Math.PI / 2);
+  const eraserHandleMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0xFF69B4, // Hot pink for eraser tool
+    flatShading: true,
+    roughness: 0.3,
+    metalness: 0.7
+  });
+  const eraserHandleMesh = new THREE.Mesh(eraserHandleGeometry, eraserHandleMaterial);
+  eraserHandleMesh.castShadow = true;
+  
+  // Eraser tip - a small cube like a real eraser
+  const eraserTipGeometry = new THREE.BoxGeometry(0.025, 0.015, 0.015);
+  const eraserTipMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0xFFB6C1, // Light pink eraser tip
+    flatShading: true,
+    roughness: 0.4,
+    metalness: 0.2
+  });
+  const eraserTipMesh = new THREE.Mesh(eraserTipGeometry, eraserTipMaterial);
+  eraserTipMesh.position.z = -0.08;
+  eraserTipMesh.castShadow = true;
+  
+  eraserGroup.add(eraserHandleMesh);
+  eraserGroup.add(eraserTipMesh);
+  
+  const eraserPivot = new THREE.Mesh(new THREE.IcosahedronGeometry(0.005, 3));
+  eraserPivot.name = "pivot";
+  eraserPivot.position.z = -0.08;
+  eraserGroup.add(eraserPivot);
+
   // Add tools to controllers
   controller1.add(painterMesh.clone());
   
   // Right controller gets the active tool mesh
   controller2.userData.painterTool = painterMesh;
   controller2.userData.measurementTool = measurementGroup;
+  controller2.userData.eraserTool = eraserGroup;
   controller2.userData.currentToolMesh = painterMesh.clone();
   controller2.add(controller2.userData.currentToolMesh);
 
@@ -644,6 +682,8 @@ function updateToolIndicator() {
     context.fillStyle = '#4169E1'; // Blue for painter
   } else if (currentTool === 1) {
     context.fillStyle = '#FF6347'; // Red for measurement
+  } else if (currentTool === 2) {
+    context.fillStyle = '#FF69B4'; // Hot pink for eraser
   }
   
   context.font = 'bold 48px Arial';
@@ -830,6 +870,8 @@ function switchTool(direction) {
     controller2.userData.currentToolMesh = controller2.userData.painterTool.clone();
   } else if (currentTool === 1) { // Measurement tool
     controller2.userData.currentToolMesh = controller2.userData.measurementTool.clone();
+  } else if (currentTool === 2) { // Eraser tool
+    controller2.userData.currentToolMesh = controller2.userData.eraserTool.clone();
   }
   
   controller2.add(controller2.userData.currentToolMesh);
@@ -1079,78 +1121,39 @@ function handleToolSwitching() {
   }
 }
 
-function handleDeletion() {
-  if (!currentSession || buttonCooldown > 0) return;
+function handleEraserAction() {
+  if (!controller2) return;
   
-  // Check B button on both controllers
-  for (let i = 0; i < inputSources.length; i++) {
-    const inputSource = inputSources[i];
-    if (inputSource.gamepad) {
-      const gamepad = inputSource.gamepad;
-      
-      // Debug: Log all button states when any button is pressed
-      for (let buttonIndex = 0; buttonIndex < gamepad.buttons.length; buttonIndex++) {
-        if (gamepad.buttons[buttonIndex].pressed) {
-          console.log(`Button ${buttonIndex} pressed on ${inputSource.handedness} controller`);
-        }
-      }
-      
-      // For Meta Quest controllers, B button is typically button index 1 (right controller) or 3 (left controller)
-      // Let's check both A (0) and B (1) buttons, and also X (2) and Y (3) for left controller
-      let bButtonPressed = false;
-      
-      if (inputSource.handedness === 'right') {
-        // Right controller: A = 0, B = 1
-        bButtonPressed = gamepad.buttons.length > 1 && gamepad.buttons[1].pressed;
-      } else if (inputSource.handedness === 'left') {
-        // Left controller: X = 0, Y = 1 (but sometimes different mapping)
-        // Try Y button (index 1) for left controller
-        bButtonPressed = gamepad.buttons.length > 1 && gamepad.buttons[1].pressed;
-      }
-      
-      if (bButtonPressed) {
-        console.log(`B/Y button pressed on ${inputSource.handedness} controller - DELETION TRIGGERED`);
-        
-        // Get controller position
-        const controller = inputSource.handedness === 'left' ? controller1 : controller2;
-        if (controller) {
-          const controllerPosition = new THREE.Vector3();
-          controller.getWorldPosition(controllerPosition);
-          
-          // Find closest measurement line and model
-          const closestLine = findClosestMeasurementLine(controllerPosition);
-          const closestModel = findClosestPlacedModel(controllerPosition);
-          
-          // Determine which is closer and remove it
-          let lineDistance = Infinity;
-          let modelDistance = Infinity;
-          
-          if (closestLine) {
-            const { startPoint, endPoint } = closestLine.userData;
-            const midpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
-            lineDistance = controllerPosition.distanceTo(midpoint);
-          }
-          
-          if (closestModel) {
-            const modelPosition = new THREE.Vector3();
-            closestModel.getWorldPosition(modelPosition);
-            modelDistance = controllerPosition.distanceTo(modelPosition);
-          }
-          
-          // Remove the closest object
-          if (lineDistance < modelDistance && closestLine) {
-            if (removeMeasurementLine(closestLine)) {
-              buttonCooldown = 0.5; // 500ms cooldown
-            }
-          } else if (closestModel) {
-            if (removePlacedModel(closestModel)) {
-              buttonCooldown = 0.5; // 500ms cooldown
-            }
-          }
-        }
-        break;
-      }
-    }
+  const controllerPosition = new THREE.Vector3();
+  controller2.getWorldPosition(controllerPosition);
+  
+  // Find closest measurement line and model
+  const closestLine = findClosestMeasurementLine(controllerPosition);
+  const closestModel = findClosestPlacedModel(controllerPosition);
+  
+  // Determine which is closer and remove it
+  let lineDistance = Infinity;
+  let modelDistance = Infinity;
+  
+  if (closestLine) {
+    const { startPoint, endPoint } = closestLine.userData;
+    const midpoint = new THREE.Vector3().addVectors(startPoint, endPoint).multiplyScalar(0.5);
+    lineDistance = controllerPosition.distanceTo(midpoint);
+  }
+  
+  if (closestModel) {
+    const modelPosition = new THREE.Vector3();
+    closestModel.getWorldPosition(modelPosition);
+    modelDistance = controllerPosition.distanceTo(modelPosition);
+  }
+  
+  // Remove the closest object (within reasonable distance)
+  if (lineDistance < modelDistance && closestLine && lineDistance < 1.0) { // 1 meter range
+    removeMeasurementLine(closestLine);
+    console.log('Erased measurement line');
+  } else if (closestModel && modelDistance < 1.0) { // 1 meter range
+    removePlacedModel(closestModel);
+    console.log('Erased placed model');
   }
 }
 
@@ -1270,9 +1273,6 @@ function render() {
   
   // Handle tool switching with right thumbstick
   handleToolSwitching();
-  
-  // Handle deletion with B button (both measurement lines and models)
-  handleDeletion();
 
   renderer.render(scene, camera);
 }
