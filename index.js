@@ -161,7 +161,7 @@ function init() {
   });
 
   // Create placement indicator (a simple ring)
-  const indicatorGeometry = new THREE.RingGeometry(0.3, 0.35, 16);
+  const indicatorGeometry = new THREE.RingGeometry(0.15, 0.175, 16); // Half the original size
   const indicatorMaterial = new THREE.MeshBasicMaterial({ 
     color: 0x00ff00, 
     transparent: true, 
@@ -270,6 +270,21 @@ function init() {
   painterPivot.position.z = -0.05;
   painterMesh.add(painterPivot);
 
+  // Left controller painter mesh (green to match placement indicator)
+  const leftPainterMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x00ff00, // Green to match placement indicator
+    flatShading: true,
+    roughness: 0.3,
+    metalness: 0.8 // More metallic look
+  });
+  const leftPainterMesh = new THREE.Mesh(painterGeometry, leftPainterMaterial);
+  leftPainterMesh.castShadow = true;
+  
+  const leftPainterPivot = new THREE.Mesh(new THREE.IcosahedronGeometry(0.01, 3));
+  leftPainterPivot.name = "pivot";
+  leftPainterPivot.position.z = -0.05;
+  leftPainterMesh.add(leftPainterPivot);
+
   // Measurement tool - looks like a ruler/pointer
   const measurementGroup = new THREE.Group();
   
@@ -342,7 +357,7 @@ function init() {
   eraserGroup.add(eraserPivot);
 
   // Add tools to controllers
-  controller1.add(painterMesh.clone());
+  controller1.add(leftPainterMesh); // Use green painter mesh for left controller
   
   // Right controller gets the active tool mesh
   controller2.userData.painterTool = painterMesh;
