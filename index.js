@@ -14,11 +14,11 @@ class CustomPainter {
     this.geometry = null;
     this.material = null;
     this.points = []; // Store actual 3D points along the path
-    this.size = 0.01;
-    this.color = new THREE.Color(0.5, 0.5, 1);
+    this.size = 0.02; // Made larger for better visibility
+    this.color = new THREE.Color(0.2, 0.8, 0.2); // Bright green for visibility
     this.isDrawing = false;
     this.lastPosition = new THREE.Vector3();
-    this.segmentLength = 0.005; // Minimum distance between points
+    this.segmentLength = 0.01; // Slightly larger segment length
     
     this.init();
   }
@@ -67,6 +67,7 @@ class CustomPainter {
       this.isDrawing = true;
       // Add the first point
       this.points.push(this.lastPosition.clone());
+      console.log('Started drawing, first point:', this.lastPosition);
     }
     
     // Only add point if we've moved enough distance
@@ -74,44 +75,72 @@ class CustomPainter {
     if (distance > this.segmentLength) {
       this.points.push(position.clone());
       this.lastPosition.copy(position);
+      console.log('Added point:', position, 'Total points:', this.points.length);
     }
   }
   
   update() {
+    console.log('Update called, points:', this.points.length);
     this.updateGeometry();
   }
   
   updateGeometry() {
     if (this.points.length < 2) {
-      // Not enough points to create geometry
+      // Not enough points to create geometry, but keep the mesh visible
       this.geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
       this.geometry.setDrawRange(0, 0);
       return;
     }
     
     // Create tube geometry from points
-    const tubeGeometry = this.createTubeFromPoints();
-    
-    // Copy attributes from tube geometry to our geometry
-    this.geometry.setAttribute('position', tubeGeometry.getAttribute('position'));
-    this.geometry.setAttribute('normal', tubeGeometry.getAttribute('normal'));
-    this.geometry.setAttribute('uv', tubeGeometry.getAttribute('uv'));
-    this.geometry.setIndex(tubeGeometry.getIndex());
-    
-    // Update the geometry
-    this.geometry.attributes.position.needsUpdate = true;
-    this.geometry.attributes.normal.needsUpdate = true;
-    
-    // Clean up temporary geometry
-    tubeGeometry.dispose();
+    try {
+      const tubeGeometry = this.createTubeFromPoints();
+      
+      // Dispose of old geometry to prevent memory leaks
+      if (this.geometry.attributes.position) {
+        this.geometry.dispose();
+        this.geometry = tubeGeometry;
+        this.mesh.geometry = this.geometry;
+      } else {
+        // Copy attributes from tube geometry to our geometry
+        this.geometry.setAttribute('position', tubeGeometry.getAttribute('position'));
+        this.geometry.setAttribute('normal', tubeGeometry.getAttribute('normal'));
+        this.geometry.setAttribute('uv', tubeGeometry.getAttribute('uv'));
+        this.geometry.setIndex(tubeGeometry.getIndex());
+        
+        // Update the geometry
+        this.geometry.attributes.position.needsUpdate = true;
+        this.geometry.attributes.normal.needsUpdate = true;
+        
+        // Clean up temporary geometry
+        tubeGeometry.dispose();
+      }
+    } catch (error) {
+      console.error('Error creating tube geometry:', error);
+    }
   }
   
   createTubeFromPoints() {
+    // Ensure we have enough points for a proper curve
+    let curvePoints = [...this.points];
+    
+    // CatmullRomCurve3 needs at least 2 points, but works better with more
+    if (curvePoints.length === 2) {
+      // For just 2 points, create a simple straight line with intermediate points
+      const start = curvePoints[0];
+      const end = curvePoints[1];
+      const mid1 = new THREE.Vector3().lerpVectors(start, end, 0.33);
+      const mid2 = new THREE.Vector3().lerpVectors(start, end, 0.66);
+      curvePoints = [start, mid1, mid2, end];
+    }
+    
+    console.log('Creating tube from points:', curvePoints.length);
+    
     // Create a curve from our points
-    const curve = new THREE.CatmullRomCurve3(this.points);
+    const curve = new THREE.CatmullRomCurve3(curvePoints);
     
     // Create tube geometry
-    const segments = Math.max(2, this.points.length * 2); // More segments for smoother curves
+    const segments = Math.max(8, curvePoints.length * 3); // More segments for smoother curves
     const radialSegments = 8; // Number of sides around the tube
     
     return new THREE.TubeGeometry(curve, segments, this.size, radialSegments, false);
