@@ -123,9 +123,6 @@ function init() {
   modelPlacementIndicator.visible = false;
   scene.add(modelPlacementIndicator);
 
-  // Create tool indicator text (initially hidden)
-  createToolIndicator();
-
   //
 
   const painter1 = new TubePainter();
@@ -268,6 +265,9 @@ function init() {
   controller2.userData.measurementTool = measurementGroup;
   controller2.userData.currentToolMesh = painterMesh.clone();
   controller2.add(controller2.userData.currentToolMesh);
+
+  // Create tool indicator now that controller2 exists
+  createToolIndicator();
 
   //
 
