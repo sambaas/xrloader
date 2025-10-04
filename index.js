@@ -164,6 +164,7 @@ class CustomPainter {
 
 // Import assets so Parcel includes them in the build
 import closetObjUrl from "./assets/closet.obj";
+import cubeObjUrl from "./assets/example-cube.obj";
 
 // =====================================
 // GLOBAL VARIABLES
@@ -218,6 +219,284 @@ let measurementPreviewText = null;
 let measurementStartPoint = null;
 let isPlacingMeasurement = false;
 const snapDistance = 0.02; // 2cm snap distance
+
+// Design storage variables
+let currentDesignName = null;
+let autoSaveInterval = null;
+const DESIGN_PREFIX = 'xr_design_';
+const AUTOSAVE_INTERVAL = 30000; // 30 seconds
+
+// =====================================
+// DESIGN STORAGE SYSTEM
+// =====================================
+
+function generateDesignName() {
+  const now = new Date();
+  const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return `Design_${timestamp}`;
+}
+
+function serializeScene() {
+  const sceneData = {
+    timestamp: new Date().toISOString(),
+    placedModels: [],
+    paintGroups: [],
+    measurementLines: []
+  };
+  
+  // Serialize placed models
+  for (let model of placedModels) {
+    sceneData.placedModels.push({
+      name: model.userData.originalName || 'Unknown',
+      position: {
+        x: model.position.x,
+        y: model.position.y,
+        z: model.position.z
+      },
+      rotation: {
+        x: model.rotation.x,
+        y: model.rotation.y,
+        z: model.rotation.z
+      },
+      scale: {
+        x: model.scale.x,
+        y: model.scale.y,
+        z: model.scale.z
+      }
+    });
+  }
+  
+  // Serialize paint groups
+  for (let paintGroup of paintGroups) {
+    if (paintGroup.children && paintGroup.children.length > 0) {
+      const paintMesh = paintGroup.children[0];
+      if (paintMesh.geometry && paintMesh.geometry.attributes.position) {
+        const positions = Array.from(paintMesh.geometry.attributes.position.array);
+        const colors = paintMesh.geometry.attributes.color ? 
+          Array.from(paintMesh.geometry.attributes.color.array) : [];
+        
+        sceneData.paintGroups.push({
+          positions: positions,
+          colors: colors,
+          timestamp: paintGroup.userData.startTime
+        });
+      }
+    }
+  }
+  
+  // Serialize measurement lines
+  for (let measurementLine of measurementLines) {
+    const userData = measurementLine.userData;
+    sceneData.measurementLines.push({
+      startPoint: {
+        x: userData.startPoint.x,
+        y: userData.startPoint.y,
+        z: userData.startPoint.z
+      },
+      endPoint: {
+        x: userData.endPoint.x,
+        y: userData.endPoint.y,
+        z: userData.endPoint.z
+      },
+      distance: userData.distance
+    });
+  }
+  
+  return sceneData;
+}
+
+function deserializeScene(sceneData) {
+  // Clear current scene
+  clearScene();
+  
+  // Restore placed models
+  for (let modelData of sceneData.placedModels) {
+    // Find the template for this model
+    const template = availableModels.find(m => m.name === modelData.name);
+    if (template) {
+      const modelClone = template.template.clone();
+      modelClone.position.set(modelData.position.x, modelData.position.y, modelData.position.z);
+      modelClone.rotation.set(modelData.rotation.x, modelData.rotation.y, modelData.rotation.z);
+      modelClone.scale.set(modelData.scale.x, modelData.scale.y, modelData.scale.z);
+      modelClone.userData.originalName = modelData.name;
+      
+      scene.add(modelClone);
+      placedModels.push(modelClone);
+    }
+  }
+  
+  // Restore paint groups
+  for (let paintData of sceneData.paintGroups) {
+    const paintGroup = new THREE.Group();
+    paintGroup.userData = {
+      startTime: paintData.timestamp,
+      isActive: false
+    };
+    
+    // Create geometry from saved positions
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(paintData.positions, 3));
+    
+    if (paintData.colors.length > 0) {
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(paintData.colors, 3));
+    }
+    
+    const material = new THREE.MeshBasicMaterial({ 
+      vertexColors: paintData.colors.length > 0,
+      color: paintData.colors.length === 0 ? 0x4169E1 : undefined
+    });
+    
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    
+    paintGroup.add(mesh);
+    scene.add(paintGroup);
+    paintGroups.push(paintGroup);
+  }
+  
+  // Restore measurement lines
+  for (let lineData of sceneData.measurementLines) {
+    const startPoint = new THREE.Vector3(lineData.startPoint.x, lineData.startPoint.y, lineData.startPoint.z);
+    const endPoint = new THREE.Vector3(lineData.endPoint.x, lineData.endPoint.y, lineData.endPoint.z);
+    createMeasurementLine(startPoint, endPoint);
+  }
+}
+
+function clearScene() {
+  // Remove placed models
+  for (let model of placedModels) {
+    scene.remove(model);
+  }
+  placedModels = [];
+  
+  // Remove paint groups
+  for (let paintGroup of paintGroups) {
+    scene.remove(paintGroup);
+  }
+  paintGroups = [];
+  activePaintGroups.clear();
+  
+  // Remove measurement lines
+  for (let measurementLine of measurementLines) {
+    scene.remove(measurementLine);
+  }
+  measurementLines = [];
+}
+
+function saveDesign(designName) {
+  if (!designName) {
+    designName = generateDesignName();
+  }
+  
+  const sceneData = serializeScene();
+  const storageKey = DESIGN_PREFIX + designName;
+  
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(sceneData));
+    currentDesignName = designName;
+    console.log(`Design saved: ${designName}`);
+    return true;
+  } catch (error) {
+    console.error('Failed to save design:', error);
+    return false;
+  }
+}
+
+function loadDesign(designName) {
+  const storageKey = DESIGN_PREFIX + designName;
+  
+  try {
+    const savedData = localStorage.getItem(storageKey);
+    if (savedData) {
+      const sceneData = JSON.parse(savedData);
+      deserializeScene(sceneData);
+      currentDesignName = designName;
+      console.log(`Design loaded: ${designName}`);
+      return true;
+    }
+  } catch (error) {
+    console.error('Failed to load design:', error);
+  }
+  return false;
+}
+
+function getSavedDesigns() {
+  const designs = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key.startsWith(DESIGN_PREFIX)) {
+      const designName = key.substring(DESIGN_PREFIX.length);
+      try {
+        const data = JSON.parse(localStorage.getItem(key));
+        designs.push({
+          name: designName,
+          timestamp: data.timestamp,
+          modelsCount: data.placedModels.length,
+          paintGroupsCount: data.paintGroups.length,
+          measurementsCount: data.measurementLines.length
+        });
+      } catch (error) {
+        console.warn(`Invalid design data for ${designName}`);
+      }
+    }
+  }
+  
+  // Sort by timestamp (newest first)
+  designs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return designs;
+}
+
+function deleteDesign(designName) {
+  const storageKey = DESIGN_PREFIX + designName;
+  try {
+    localStorage.removeItem(storageKey);
+    console.log(`Design deleted: ${designName}`);
+    return true;
+  } catch (error) {
+    console.error('Failed to delete design:', error);
+    return false;
+  }
+}
+
+function renameDesign(oldName, newName) {
+  const oldKey = DESIGN_PREFIX + oldName;
+  const newKey = DESIGN_PREFIX + newName;
+  
+  try {
+    const data = localStorage.getItem(oldKey);
+    if (data) {
+      localStorage.setItem(newKey, data);
+      localStorage.removeItem(oldKey);
+      if (currentDesignName === oldName) {
+        currentDesignName = newName;
+      }
+      console.log(`Design renamed: ${oldName} -> ${newName}`);
+      return true;
+    }
+  } catch (error) {
+    console.error('Failed to rename design:', error);
+  }
+  return false;
+}
+
+function startAutoSave() {
+  if (autoSaveInterval) {
+    clearInterval(autoSaveInterval);
+  }
+  
+  autoSaveInterval = setInterval(() => {
+    if (currentDesignName && currentSession) {
+      saveDesign(currentDesignName);
+    }
+  }, AUTOSAVE_INTERVAL);
+}
+
+function stopAutoSave() {
+  if (autoSaveInterval) {
+    clearInterval(autoSaveInterval);
+    autoSaveInterval = null;
+  }
+}
 
 // =====================================
 // INITIALIZATION
@@ -316,6 +595,36 @@ function init() {
     console.log('Closet model loaded successfully');
   }, undefined, function(error) {
     console.error('Error loading closet model:', error);
+  });
+
+  // Load the example cube model
+  objLoader.load(cubeObjUrl, function(object) {
+    // Set scale to 1.0 so 1 OBJ unit = 1 meter in XR
+    object.scale.setScalar(1.0);
+    
+    // Make sure the model has proper materials with enhanced shading
+    object.traverse(function(child) {
+      if (child.isMesh) {
+        child.material = new THREE.MeshStandardMaterial({ 
+          color: 0x4169E1, // Blue color
+          roughness: 0.5,
+          metalness: 0.3,
+        });
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+    
+    // Add to model catalog
+    availableModels.push({
+      name: 'Cube',
+      template: object,
+      url: cubeObjUrl
+    });
+    
+    console.log('Cube model loaded successfully');
+  }, undefined, function(error) {
+    console.error('Error loading cube model:', error);
   });
 
   // Create placement indicator (a simple ring)
@@ -532,9 +841,8 @@ function init() {
 
   window.addEventListener("resize", onWindowResize);
 
-  // Note: Click HTML button to start session
-  let arButton = document.querySelector("button");
-  arButton.onclick = startAR;
+  // Set up design management interface
+  setupDesignInterface();
 }
 
 // =====================================
@@ -546,6 +854,237 @@ function onWindowResize() {
   camera.updateProjectionMatrix();
 
   renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+// =====================================
+// DESIGN INTERFACE MANAGEMENT
+// =====================================
+
+function setupDesignInterface() {
+  const newDesignBtn = document.getElementById('newDesignBtn');
+  const loadDesignBtn = document.getElementById('loadDesignBtn');
+  const manageDesignsBtn = document.getElementById('manageDesignsBtn');
+  const saveNowBtn = document.getElementById('saveNowBtn');
+  
+  const designModal = document.getElementById('designModal');
+  const manageModal = document.getElementById('manageModal');
+  const modalCancelBtn = document.getElementById('modalCancelBtn');
+  const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+  const manageModalCloseBtn = document.getElementById('manageModalCloseBtn');
+  
+  const currentDesignInfo = document.getElementById('currentDesignInfo');
+  const currentDesignNameEl = document.getElementById('currentDesignName');
+  
+  let selectedDesignName = null;
+
+  // New Design button
+  newDesignBtn.onclick = () => {
+    const designName = generateDesignName();
+    clearScene();
+    currentDesignName = designName;
+    saveDesign(designName);
+    updateCurrentDesignDisplay();
+    startAR();
+  };
+
+  // Load Design button
+  loadDesignBtn.onclick = () => {
+    showDesignModal('load');
+  };
+
+  // Manage Designs button
+  manageDesignsBtn.onclick = () => {
+    showManageModal();
+  };
+
+  // Save Now button
+  saveNowBtn.onclick = () => {
+    if (currentDesignName) {
+      saveDesign(currentDesignName);
+      showNotification('Design saved!');
+    }
+  };
+
+  // Modal handlers
+  modalCancelBtn.onclick = () => {
+    designModal.classList.add('hidden');
+    selectedDesignName = null;
+  };
+
+  modalConfirmBtn.onclick = () => {
+    if (selectedDesignName) {
+      loadDesign(selectedDesignName);
+      updateCurrentDesignDisplay();
+      designModal.classList.add('hidden');
+      startAR();
+    }
+  };
+
+  manageModalCloseBtn.onclick = () => {
+    manageModal.classList.add('hidden');
+  };
+
+  // Close modals on background click
+  designModal.onclick = (e) => {
+    if (e.target === designModal) {
+      designModal.classList.add('hidden');
+      selectedDesignName = null;
+    }
+  };
+
+  manageModal.onclick = (e) => {
+    if (e.target === manageModal) {
+      manageModal.classList.add('hidden');
+    }
+  };
+
+  function showDesignModal(mode = 'load') {
+    const modalTitle = document.getElementById('modalTitle');
+    const designList = document.getElementById('designList');
+    
+    modalTitle.textContent = mode === 'load' ? 'Load Design' : 'Select Design';
+    
+    const designs = getSavedDesigns();
+    designList.innerHTML = '';
+    
+    if (designs.length === 0) {
+      designList.innerHTML = '<p class="text-gray-500 text-center py-4">No saved designs found</p>';
+      return;
+    }
+    
+    designs.forEach(design => {
+      const designEl = document.createElement('div');
+      designEl.className = 'p-3 border rounded hover:bg-gray-50 cursor-pointer transition-colors';
+      designEl.innerHTML = `
+        <div class="font-semibold">${design.name}</div>
+        <div class="text-sm text-gray-600">
+          ${new Date(design.timestamp).toLocaleString()}<br>
+          Models: ${design.modelsCount}, Paint: ${design.paintGroupsCount}, Measurements: ${design.measurementsCount}
+        </div>
+      `;
+      
+      designEl.onclick = () => {
+        // Remove selection from other items
+        designList.querySelectorAll('.bg-blue-100').forEach(el => {
+          el.classList.remove('bg-blue-100');
+        });
+        // Add selection to this item
+        designEl.classList.add('bg-blue-100');
+        selectedDesignName = design.name;
+      };
+      
+      designList.appendChild(designEl);
+    });
+    
+    designModal.classList.remove('hidden');
+    selectedDesignName = null;
+  }
+
+  function showManageModal() {
+    const manageDesignList = document.getElementById('manageDesignList');
+    const designs = getSavedDesigns();
+    
+    manageDesignList.innerHTML = '';
+    
+    if (designs.length === 0) {
+      manageDesignList.innerHTML = '<p class="text-gray-500 text-center py-4">No saved designs found</p>';
+      manageModal.classList.remove('hidden');
+      return;
+    }
+    
+    designs.forEach(design => {
+      const designEl = document.createElement('div');
+      designEl.className = 'p-3 border rounded mb-2';
+      designEl.innerHTML = `
+        <div class="flex justify-between items-start">
+          <div class="flex-1">
+            <div class="font-semibold">${design.name}</div>
+            <div class="text-sm text-gray-600">
+              ${new Date(design.timestamp).toLocaleString()}<br>
+              Models: ${design.modelsCount}, Paint: ${design.paintGroupsCount}, Measurements: ${design.measurementsCount}
+            </div>
+          </div>
+          <div class="flex gap-2 ml-4">
+            <button class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm" onclick="loadDesignFromManage('${design.name}')">
+              Load
+            </button>
+            <button class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm" onclick="renameDesignFromManage('${design.name}')">
+              Rename
+            </button>
+            <button class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm" onclick="deleteDesignFromManage('${design.name}')">
+              Delete
+            </button>
+          </div>
+        </div>
+      `;
+      
+      manageDesignList.appendChild(designEl);
+    });
+    
+    manageModal.classList.remove('hidden');
+  }
+
+  function updateCurrentDesignDisplay() {
+    if (currentDesignName) {
+      currentDesignNameEl.textContent = currentDesignName;
+      currentDesignInfo.classList.remove('hidden');
+    } else {
+      currentDesignInfo.classList.add('hidden');
+    }
+  }
+
+  // Global functions for manage modal buttons
+  window.loadDesignFromManage = (designName) => {
+    loadDesign(designName);
+    updateCurrentDesignDisplay();
+    manageModal.classList.add('hidden');
+    showNotification('Design loaded!');
+  };
+
+  window.renameDesignFromManage = (designName) => {
+    const newName = prompt('Enter new name:', designName);
+    if (newName && newName !== designName) {
+      if (renameDesign(designName, newName)) {
+        showManageModal(); // Refresh the list
+        updateCurrentDesignDisplay();
+        showNotification('Design renamed!');
+      } else {
+        showNotification('Failed to rename design', true);
+      }
+    }
+  };
+
+  window.deleteDesignFromManage = (designName) => {
+    if (confirm(`Are you sure you want to delete "${designName}"?`)) {
+      if (deleteDesign(designName)) {
+        if (currentDesignName === designName) {
+          currentDesignName = null;
+          updateCurrentDesignDisplay();
+        }
+        showManageModal(); // Refresh the list
+        showNotification('Design deleted!');
+      } else {
+        showNotification('Failed to delete design', true);
+      }
+    }
+  };
+
+  // Initialize display
+  updateCurrentDesignDisplay();
+}
+
+function showNotification(message, isError = false) {
+  const notification = document.createElement('div');
+  notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white font-semibold z-50 ${
+    isError ? 'bg-red-600' : 'bg-green-600'
+  }`;
+  notification.textContent = message;
+  
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.remove();
+  }, 3000);
 }
 
 // =====================================
@@ -1322,6 +1861,9 @@ function handleModelPlacement() {
       newModel.position.y = 0; // Ensure it's on the floor
       newModel.scale.setScalar(1.0); // Reset to full size
       
+      // Store the original model name for serialization
+      newModel.userData.originalName = availableModels[currentModelIndex].name;
+      
       // Add to scene and track it
       scene.add(newModel);
       placedModels.push(newModel);
@@ -1606,6 +2148,11 @@ async function onSessionStarted(session) {
   session.addEventListener("inputsourceschange", onInputSourcesChange);
   await renderer.xr.setSession(session);
   currentSession = session;
+  
+  // Start auto-save when XR session begins
+  startAutoSave();
+  
+  console.log('XR session started, auto-save enabled');
 }
 
 function onInputSourcesChange(event) {
@@ -1615,6 +2162,14 @@ function onInputSourcesChange(event) {
 function onSessionEnded() {
   currentSession.removeEventListener("end", onSessionEnded);
   currentSession.removeEventListener("inputsourceschange", onInputSourcesChange);
+  
+  // Stop auto-save and save one final time when session ends
+  stopAutoSave();
+  if (currentDesignName) {
+    saveDesign(currentDesignName);
+    console.log('Final save on session end');
+  }
+  
   currentSession = null;
   inputSources = [];
 }
