@@ -4,65 +4,154 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-    <title>WebXR OBJ Loader</title>
+    <title>WebXR Design Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style></style>
+    <style>
+      /* Custom animations and enhancements */
+      .design-card {
+        transition: all 0.2s ease-in-out;
+      }
+      .design-card:hover {
+        transform: translateY(-2px);
+      }
+      
+      /* Responsive grid for design cards */
+      @media (min-width: 768px) {
+        .designs-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+          gap: 1rem;
+        }
+      }
+      
+      /* Custom scrollbar for design list */
+      .designs-scroll {
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+      .designs-scroll::-webkit-scrollbar {
+        width: 8px;
+      }
+      .designs-scroll::-webkit-scrollbar-track {
+        background: #f1f5f9;
+        border-radius: 4px;
+      }
+      .designs-scroll::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      .designs-scroll::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+      
+      /* Snackbar/Toast notifications */
+      .snackbar {
+        min-width: 320px;
+        max-width: 500px;
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 1000;
+        border-radius: 12px;
+        padding: 16px 20px;
+        color: white;
+        font-weight: 500;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        transform: translateX(120%);
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      
+      .snackbar.show {
+        transform: translateX(0);
+      }
+      
+      .snackbar.success {
+        background: linear-gradient(135deg, #10b981, #059669);
+      }
+      
+      .snackbar.error {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+      }
+      
+      .snackbar.info {
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
+      }
+      
+      .snackbar-content {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      
+      .snackbar-icon {
+        font-size: 20px;
+        flex-shrink: 0;
+      }
+      
+      .snackbar-message {
+        flex: 1;
+        line-height: 1.4;
+      }
+      
+      .snackbar-close {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: white;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: bold;
+        transition: background-color 0.2s ease;
+        flex-shrink: 0;
+      }
+      
+      .snackbar-close:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+      
+      .snackbar-progress {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 0 0 12px 12px;
+        animation: progressBar 4s linear;
+      }
+      
+      @keyframes progressBar {
+        from { width: 100%; }
+        to { width: 0%; }
+      }
+    </style>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <div class="m-8">
-      <!-- Main action buttons -->
-      <div class="mb-6 flex flex-wrap gap-4">
-        <button id="newDesignBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-green-300 active:bg-green-800">
-          New Design
-        </button>
-        <button id="loadDesignBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300 active:bg-blue-800">
-          Load Design
-        </button>
-        <button id="manageDesignsBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-purple-300 active:bg-purple-800">
-          Manage Designs
+      <!-- Main action button -->
+      <div class="mb-6">
+        <button id="newDesignBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-lg shadow-lg transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-green-300 active:bg-green-800 text-lg">
+          Start New Design
         </button>
       </div>
 
-      <!-- Current design info -->
-      <div id="currentDesignInfo" class="mb-4 p-4 bg-gray-100 rounded-lg hidden">
-        <h3 class="font-semibold text-gray-800">Current Design: <span id="currentDesignName" class="text-blue-600"></span></h3>
-        <p class="text-sm text-gray-600">Auto-save is enabled every 30 seconds</p>
-        <button id="saveNowBtn" class="mt-2 bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200">
-          Save Now
-        </button>
-      </div>
-
-      <!-- Design selection modal -->
-      <div id="designModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
-        <div class="bg-white rounded-lg p-6 max-w-md w-full m-4">
-          <h2 id="modalTitle" class="text-xl font-bold mb-4 text-gray-800">Load Design</h2>
-          <div id="designList" class="max-h-64 overflow-y-auto mb-4">
-            <!-- Design list will be populated dynamically -->
-          </div>
-          <div class="flex justify-end gap-2">
-            <button id="modalCancelBtn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition-colors duration-200">
-              Cancel
-            </button>
-            <button id="modalConfirmBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200">
-              Load
-            </button>
-          </div>
+      <!-- Previous designs section -->
+      <div class="mb-6">
+        <h2 class="text-xl font-bold mb-4 text-gray-800">📁 Previous Designs</h2>
+        <div id="designsList" class="designs-scroll designs-grid space-y-3">
+          <!-- Design list will be populated here -->
         </div>
-      </div>
-
-      <!-- Design management modal -->
-      <div id="manageModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
-        <div class="bg-white rounded-lg p-6 max-w-lg w-full m-4">
-          <h2 class="text-xl font-bold mb-4 text-gray-800">Manage Designs</h2>
-          <div id="manageDesignList" class="max-h-64 overflow-y-auto mb-4">
-            <!-- Management list will be populated dynamically -->
-          </div>
-          <div class="flex justify-end">
-            <button id="manageModalCloseBtn" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition-colors duration-200">
-              Close
-            </button>
-          </div>
+        <div id="noDesignsMessage" class="text-center py-12 text-gray-500 hidden">
+          <div class="text-6xl mb-4">📁</div>
+          <h3 class="text-lg font-semibold mb-2">No saved designs yet</h3>
+          <p>Create your first design by clicking "Start New Design" above!</p>
         </div>
       </div>
     </div>

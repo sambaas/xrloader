@@ -480,21 +480,16 @@ function renameDesign(oldName, newName) {
 }
 
 function startAutoSave() {
-  if (autoSaveInterval) {
-    clearInterval(autoSaveInterval);
-  }
-  
-  autoSaveInterval = setInterval(() => {
-    if (currentDesignName && currentSession) {
-      saveDesign(currentDesignName);
-    }
-  }, AUTOSAVE_INTERVAL);
+  // Auto-save removed - now using save-on-change
 }
 
 function stopAutoSave() {
-  if (autoSaveInterval) {
-    clearInterval(autoSaveInterval);
-    autoSaveInterval = null;
+  // Auto-save removed - now using save-on-change
+}
+
+function saveCurrentDesign() {
+  if (currentDesignName && currentSession) {
+    saveDesign(currentDesignName);
   }
 }
 
@@ -862,20 +857,8 @@ function onWindowResize() {
 
 function setupDesignInterface() {
   const newDesignBtn = document.getElementById('newDesignBtn');
-  const loadDesignBtn = document.getElementById('loadDesignBtn');
-  const manageDesignsBtn = document.getElementById('manageDesignsBtn');
-  const saveNowBtn = document.getElementById('saveNowBtn');
-  
-  const designModal = document.getElementById('designModal');
-  const manageModal = document.getElementById('manageModal');
-  const modalCancelBtn = document.getElementById('modalCancelBtn');
-  const modalConfirmBtn = document.getElementById('modalConfirmBtn');
-  const manageModalCloseBtn = document.getElementById('manageModalCloseBtn');
-  
-  const currentDesignInfo = document.getElementById('currentDesignInfo');
-  const currentDesignNameEl = document.getElementById('currentDesignName');
-  
-  let selectedDesignName = null;
+  const designsList = document.getElementById('designsList');
+  const noDesignsMessage = document.getElementById('noDesignsMessage');
 
   // New Design button
   newDesignBtn.onclick = () => {
@@ -883,208 +866,155 @@ function setupDesignInterface() {
     clearScene();
     currentDesignName = designName;
     saveDesign(designName);
-    updateCurrentDesignDisplay();
+    refreshDesignsList();
     startAR();
   };
 
-  // Load Design button
-  loadDesignBtn.onclick = () => {
-    showDesignModal('load');
-  };
-
-  // Manage Designs button
-  manageDesignsBtn.onclick = () => {
-    showManageModal();
-  };
-
-  // Save Now button
-  saveNowBtn.onclick = () => {
-    if (currentDesignName) {
-      saveDesign(currentDesignName);
-      showNotification('Design saved!');
-    }
-  };
-
-  // Modal handlers
-  modalCancelBtn.onclick = () => {
-    designModal.classList.add('hidden');
-    selectedDesignName = null;
-  };
-
-  modalConfirmBtn.onclick = () => {
-    if (selectedDesignName) {
-      loadDesign(selectedDesignName);
-      updateCurrentDesignDisplay();
-      designModal.classList.add('hidden');
-      startAR();
-    }
-  };
-
-  manageModalCloseBtn.onclick = () => {
-    manageModal.classList.add('hidden');
-  };
-
-  // Close modals on background click
-  designModal.onclick = (e) => {
-    if (e.target === designModal) {
-      designModal.classList.add('hidden');
-      selectedDesignName = null;
-    }
-  };
-
-  manageModal.onclick = (e) => {
-    if (e.target === manageModal) {
-      manageModal.classList.add('hidden');
-    }
-  };
-
-  function showDesignModal(mode = 'load') {
-    const modalTitle = document.getElementById('modalTitle');
-    const designList = document.getElementById('designList');
-    
-    modalTitle.textContent = mode === 'load' ? 'Load Design' : 'Select Design';
-    
+  function refreshDesignsList() {
     const designs = getSavedDesigns();
-    designList.innerHTML = '';
     
     if (designs.length === 0) {
-      designList.innerHTML = '<p class="text-gray-500 text-center py-4">No saved designs found</p>';
+      designsList.innerHTML = '';
+      noDesignsMessage.classList.remove('hidden');
       return;
     }
     
-    designs.forEach(design => {
-      const designEl = document.createElement('div');
-      designEl.className = 'p-3 border rounded hover:bg-gray-50 cursor-pointer transition-colors';
-      designEl.innerHTML = `
-        <div class="font-semibold">${design.name}</div>
-        <div class="text-sm text-gray-600">
-          ${new Date(design.timestamp).toLocaleString()}<br>
-          Models: ${design.modelsCount}, Paint: ${design.paintGroupsCount}, Measurements: ${design.measurementsCount}
-        </div>
-      `;
-      
-      designEl.onclick = () => {
-        // Remove selection from other items
-        designList.querySelectorAll('.bg-blue-100').forEach(el => {
-          el.classList.remove('bg-blue-100');
-        });
-        // Add selection to this item
-        designEl.classList.add('bg-blue-100');
-        selectedDesignName = design.name;
-      };
-      
-      designList.appendChild(designEl);
-    });
+    noDesignsMessage.classList.add('hidden');
     
-    designModal.classList.remove('hidden');
-    selectedDesignName = null;
-  }
-
-  function showManageModal() {
-    const manageDesignList = document.getElementById('manageDesignList');
-    const designs = getSavedDesigns();
-    
-    manageDesignList.innerHTML = '';
-    
-    if (designs.length === 0) {
-      manageDesignList.innerHTML = '<p class="text-gray-500 text-center py-4">No saved designs found</p>';
-      manageModal.classList.remove('hidden');
-      return;
-    }
-    
-    designs.forEach(design => {
-      const designEl = document.createElement('div');
-      designEl.className = 'p-3 border rounded mb-2';
-      designEl.innerHTML = `
-        <div class="flex justify-between items-start">
-          <div class="flex-1">
-            <div class="font-semibold">${design.name}</div>
-            <div class="text-sm text-gray-600">
-              ${new Date(design.timestamp).toLocaleString()}<br>
-              Models: ${design.modelsCount}, Paint: ${design.paintGroupsCount}, Measurements: ${design.measurementsCount}
+    designsList.innerHTML = designs.map(design => `
+      <div class="design-card bg-white border border-gray-200 rounded-lg p-5 shadow-sm hover:shadow-lg transition-all duration-200">
+        <div class="flex justify-between items-start gap-4">
+          <div class="flex-1 min-w-0">
+            <h3 class="font-bold text-gray-900 text-lg truncate mb-2">${design.name}</h3>
+            <p class="text-sm text-gray-600 mb-3 flex items-center gap-1">
+              <span>📅</span>
+              <span>${new Date(design.timestamp).toLocaleDateString()} at ${new Date(design.timestamp).toLocaleTimeString()}</span>
+            </p>
+            <div class="flex flex-wrap gap-2 text-xs">
+              <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">${design.modelsCount} models</span>
+              <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full font-medium">${design.paintGroupsCount} paint</span>
+              <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded-full font-medium">${design.measurementsCount} measurements</span>
             </div>
           </div>
-          <div class="flex gap-2 ml-4">
-            <button class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm" onclick="loadDesignFromManage('${design.name}')">
-              Load
+          <div class="flex flex-col gap-2 min-w-0">
+            <button 
+              onclick="loadDesignDirectly('${design.name}')" 
+              class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 text-sm whitespace-nowrap shadow-sm hover:shadow-md"
+              title="Resume this design"
+            >
+              Resume
             </button>
-            <button class="bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-1 rounded text-sm" onclick="renameDesignFromManage('${design.name}')">
+            <button 
+              onclick="renameDesignDirectly('${design.name}')" 
+              class="bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 text-sm whitespace-nowrap shadow-sm hover:shadow-md"
+              title="Rename this design"
+            >
               Rename
             </button>
-            <button class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm" onclick="deleteDesignFromManage('${design.name}')">
+            <button 
+              onclick="deleteDesignDirectly('${design.name}')" 
+              class="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 text-sm whitespace-nowrap shadow-sm hover:shadow-md"
+              title="Delete this design permanently"
+            >
               Delete
             </button>
           </div>
         </div>
-      `;
-      
-      manageDesignList.appendChild(designEl);
-    });
-    
-    manageModal.classList.remove('hidden');
+      </div>
+    `).join('');
   }
 
-  function updateCurrentDesignDisplay() {
-    if (currentDesignName) {
-      currentDesignNameEl.textContent = currentDesignName;
-      currentDesignInfo.classList.remove('hidden');
+  // Global functions for design management
+  window.loadDesignDirectly = (designName) => {
+    if (loadDesign(designName)) {
+      showNotification(`Loaded "${designName}" successfully`);
+      startAR();
     } else {
-      currentDesignInfo.classList.add('hidden');
+      showNotification(`Failed to load "${designName}"`, 'error');
     }
-  }
-
-  // Global functions for manage modal buttons
-  window.loadDesignFromManage = (designName) => {
-    loadDesign(designName);
-    updateCurrentDesignDisplay();
-    manageModal.classList.add('hidden');
-    showNotification('Design loaded!');
   };
 
-  window.renameDesignFromManage = (designName) => {
-    const newName = prompt('Enter new name:', designName);
-    if (newName && newName !== designName) {
-      if (renameDesign(designName, newName)) {
-        showManageModal(); // Refresh the list
-        updateCurrentDesignDisplay();
-        showNotification('Design renamed!');
+  window.renameDesignDirectly = (designName) => {
+    const newName = prompt(`Enter new name for "${designName}":`, designName);
+    if (newName && newName !== designName && newName.trim()) {
+      const trimmedName = newName.trim();
+      if (renameDesign(designName, trimmedName)) {
+        refreshDesignsList();
+        showNotification(`Renamed to "${trimmedName}"`);
       } else {
-        showNotification('Failed to rename design', true);
+        showNotification('Failed to rename design', 'error');
       }
     }
   };
 
-  window.deleteDesignFromManage = (designName) => {
-    if (confirm(`Are you sure you want to delete "${designName}"?`)) {
+  window.deleteDesignDirectly = (designName) => {
+    if (confirm(`Are you sure you want to permanently delete "${designName}"?\n\nThis action cannot be undone.`)) {
       if (deleteDesign(designName)) {
         if (currentDesignName === designName) {
           currentDesignName = null;
-          updateCurrentDesignDisplay();
         }
-        showManageModal(); // Refresh the list
-        showNotification('Design deleted!');
+        refreshDesignsList();
+        showNotification(`"${designName}" deleted permanently`);
       } else {
-        showNotification('Failed to delete design', true);
+        showNotification('Failed to delete design', 'error');
       }
     }
   };
 
-  // Initialize display
-  updateCurrentDesignDisplay();
+  // Initialize the interface
+  refreshDesignsList();
+  
+  // Refresh the list periodically to show any changes
+  setInterval(refreshDesignsList, 10000); // Refresh every 10 seconds
 }
 
-function showNotification(message, isError = false) {
-  const notification = document.createElement('div');
-  notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg text-white font-semibold z-50 ${
-    isError ? 'bg-red-600' : 'bg-green-600'
-  }`;
-  notification.textContent = message;
+function showNotification(message, type = 'success') {
+  // Remove any existing snackbars
+  const existingSnackbars = document.querySelectorAll('.snackbar');
+  existingSnackbars.forEach(snackbar => snackbar.remove());
   
-  document.body.appendChild(notification);
+  // Determine icon and type based on message type
+  let icon, snackbarType;
+  if (type === 'error' || type === true) {  // backwards compatibility with isError boolean
+    icon = '✗';
+    snackbarType = 'error';
+  } else if (type === 'info') {
+    icon = 'i';
+    snackbarType = 'info';
+  } else {
+    icon = '✓';
+    snackbarType = 'success';
+  }
   
+  const snackbar = document.createElement('div');
+  snackbar.className = `snackbar ${snackbarType}`;
+  snackbar.innerHTML = `
+    <div class="snackbar-content">
+      <span class="snackbar-icon">${icon}</span>
+      <span class="snackbar-message">${message}</span>
+      <button class="snackbar-close" onclick="this.closest('.snackbar').remove()">×</button>
+    </div>
+    <div class="snackbar-progress"></div>
+  `;
+  
+  document.body.appendChild(snackbar);
+  
+  // Trigger show animation
   setTimeout(() => {
-    notification.remove();
-  }, 3000);
+    snackbar.classList.add('show');
+  }, 10);
+  
+  // Auto-remove after 4 seconds
+  setTimeout(() => {
+    if (snackbar.parentNode) {
+      snackbar.classList.remove('show');
+      setTimeout(() => {
+        if (snackbar.parentNode) {
+          snackbar.remove();
+        }
+      }, 400);
+    }
+  }, 4000);
 }
 
 // =====================================
@@ -1236,6 +1166,9 @@ function endPaintGroup(controller) {
   activePaintGroups.delete(controller);
   paintGroup.userData.isActive = false;
   
+  // Save after completing a paint stroke
+  saveCurrentDesign();
+  
   console.log('Ended paint group, total groups:', paintGroups.length);
 }
 
@@ -1378,6 +1311,8 @@ function handleGrabEnd(controller) {
   
   // If no controllers are grabbing, release the model
   if (!grabController1 && !grabController2) {
+    // Save after releasing a model (in case it was moved/scaled)
+    saveCurrentDesign();
     grabbedModel = null;
     console.log('Released model');
   }
@@ -1492,6 +1427,9 @@ function createMeasurementLine(startPoint, endPoint) {
   scene.add(measurementGroup);
   measurementLines.push(measurementGroup);
   
+  // Save after creating a measurement
+  saveCurrentDesign();
+  
   return measurementGroup;
 }
 
@@ -1566,6 +1504,9 @@ function removeMeasurementLine(measurementLine) {
   if (index > -1) {
     measurementLines.splice(index, 1);
   }
+  
+  // Save after removing a measurement
+  saveCurrentDesign();
   
   console.log('Removed measurement line');
   return true;
@@ -1762,6 +1703,9 @@ function removePlacedModel(model) {
     placedModels.splice(index, 1);
   }
   
+  // Save after removing a model
+  saveCurrentDesign();
+  
   console.log('Removed placed model');
   return true;
 }
@@ -1811,6 +1755,9 @@ function removePaintGroup(paintGroup) {
     if (index > -1) {
       paintGroups.splice(index, 1);
     }
+    
+    // Save after removing a paint group
+    saveCurrentDesign();
     
     console.log('Removed paint group, remaining groups:', paintGroups.length);
     return true;
@@ -1868,6 +1815,9 @@ function handleModelPlacement() {
       scene.add(newModel);
       placedModels.push(newModel);
       
+      // Save after placing a model
+      saveCurrentDesign();
+
       console.log('Placed new model at:', intersection.point);
       break;
     }
@@ -2149,10 +2099,7 @@ async function onSessionStarted(session) {
   await renderer.xr.setSession(session);
   currentSession = session;
   
-  // Start auto-save when XR session begins
-  startAutoSave();
-  
-  console.log('XR session started, auto-save enabled');
+  console.log('XR session started');
 }
 
 function onInputSourcesChange(event) {
@@ -2163,8 +2110,7 @@ function onSessionEnded() {
   currentSession.removeEventListener("end", onSessionEnded);
   currentSession.removeEventListener("inputsourceschange", onInputSourcesChange);
   
-  // Stop auto-save and save one final time when session ends
-  stopAutoSave();
+  // Save one final time when session ends
   if (currentDesignName) {
     saveDesign(currentDesignName);
     console.log('Final save on session end');
