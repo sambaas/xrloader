@@ -1,15 +1,18 @@
-# XR Loader
+# WebXR Design Studio
 
-A WebXR application that allows you to load .obj 3D models and place them in your physical space using augmented reality with passthrough on Meta Quest 3.
+A comprehensive WebXR application that lets you paint, measure, and create 3D designs in augmented reality using Meta Quest 3 with passthrough mode.
 
 ## Features
 
-- **WebXR AR Support**: Built for Meta Quest 3 with passthrough mode
-- **Anchor System**: Models are anchored to real-world positions for stable placement
-- **OBJ Model Loading**: Load any .obj 3D model file
-- **Automatic Scaling**: Models are automatically scaled to appropriate size
-- **Multiple Placements**: Place the same model multiple times in your space
-- **Smart Lighting**: Automatic lighting setup for better model visibility
+- **3D Painting Tool**: Draw 3D brush strokes in space with tube-like geometry
+- **Measurement Tool**: Create precise measurements between points with visual distance indicators
+- **Eraser Tool**: Remove painted strokes, measurement lines, and placed models
+- **Model Placement**: Place and manipulate pre-loaded 3D models (closet model included)
+- **Dual Controller Support**: Left controller for model placement, right controller for tools
+- **Tool Switching**: Easy tool switching with thumbstick controls
+- **Model Manipulation**: Grab and move models with single or dual controller input
+- **Design Persistence**: Save and load your designs with browser storage
+- **Professional UI**: Clean interface with design management and notifications
 
 ## Usage
 
@@ -17,6 +20,8 @@ A WebXR application that allows you to load .obj 3D models and place them in you
 
 - Meta Quest 3 (or any WebXR compatible AR headset)
 - A web browser with WebXR support (Meta Quest Browser recommended)
+
+### Quick Start
 
 ### Quick Start
 
@@ -28,13 +33,10 @@ Access the app directly at: **https://sambaas.github.io/xrloader/**
    - Open the Meta Quest Browser
    - Navigate to `https://sambaas.github.io/xrloader/`
 
-2. **Load and Place Models**:
-   - Tap "Choose File" and select an .obj model from your device
-   - Wait for the model to load
-   - Tap "Start AR Session"
-   - Look at your floor or any surface
-   - When you see the green ring indicator, tap to place the model
-   - The model will be anchored to that position
+2. **Start Creating**:
+   - Click "Start New Design" to enter AR mode
+   - Allow camera permissions when prompted
+   - Use your controllers to paint, measure, and place models in 3D space
 
 #### Option 2: Host Locally
 
@@ -70,51 +72,66 @@ Access the app directly at: **https://sambaas.github.io/xrloader/**
    - Open the Meta Quest Browser
    - Navigate to your hosted URL (e.g., `https://your-url.ngrok.io` or your local IP with port)
 
-3. **Load and Place Models**:
-   - Same steps as Option 1
+3. **Start Creating**:
+   - Click "Start New Design" and begin creating in AR
 
 ## How It Works
 
-### Core Technologies
+### Tool System
 
-- **Three.js**: 3D graphics rendering
-- **WebXR Device API**: AR session management
-- **Hit Testing**: Surface detection for model placement
-- **Anchors API**: Stable world-locked positioning
+**Left Controller (Green)**:
+- **Primary Function**: Model placement and manipulation
+- **Thumbstick**: Switch between available models
+- **Trigger**: Place models at green ring indicator location
+- **Squeeze**: Grab and move placed models
 
-### Application Flow
+**Right Controller (Tool-specific color)**:
+- **Thumbstick**: Switch between tools (Painter/Measurement/Eraser)
+- **Trigger**: Use current tool (paint, measure, erase)
+- **Squeeze**: Grab models for dual-controller manipulation
 
-1. **Model Loading**: OBJ files are parsed and prepared with automatic scaling
-2. **AR Session**: Immersive AR session with hit-test and anchors features
-3. **Surface Detection**: Real-time hit testing to detect surfaces in your environment
-4. **Anchor Placement**: When you tap, an anchor is created at the detected surface
-5. **Model Rendering**: Models are rendered at anchor positions with proper lighting
+### Tools Explained
 
-### Key Features Explained
+#### Painter Tool (Blue)
+- **Function**: Draw 3D brush strokes in space
+- **Usage**: Hold trigger and move controller to paint
+- **Features**: Creates tube-like 3D geometry that persists in space
+- **Color**: Royal blue strokes
 
-#### Passthrough Mode
-The app requests an `immersive-ar` session which automatically enables passthrough on Meta Quest 3, allowing you to see your real environment with virtual objects overlaid.
+#### Measurement Tool (Red with Gold Tip)
+- **Function**: Create precise distance measurements
+- **Usage**: 
+  - First trigger: Set start point
+  - Move to end position (preview shows live measurement)
+  - Second trigger: Finalize measurement
+- **Features**: 
+  - Snapping to existing measurement points
+  - Visual distance labels
+  - Persistent measurement lines
 
-#### Anchor System
-Anchors provide stable, world-locked positions for your models. This means:
-- Models stay in place even if you move around
-- Models maintain their position across tracking interruptions
-- More accurate placement compared to non-anchored objects
+#### Eraser Tool (Pink)
+- **Function**: Remove painted strokes, measurements, and models
+- **Usage**: Point at object and trigger to remove
+- **Range**: 10cm for models/measurements, 8cm for paint strokes
+- **Priority**: Objects containing the eraser point are removed first
 
-#### Hit Testing
-The green ring indicator shows where the model will be placed. It uses WebXR hit testing to:
-- Detect surfaces in your environment
-- Show real-time placement preview
-- Ensure models are placed on valid surfaces
+### Model System
+
+- **Pre-loaded Models**: Closet model included by default
+- **Preview**: 3cm scale preview on left controller
+- **Placement**: Green ring indicator shows placement location
+- **Manipulation**: Single or dual controller grabbing for movement and rotation
+- **Scaling**: Models placed at full scale (1 OBJ unit = 1 meter)
 
 ## File Structure
 
 ```
 xrloader/
-├── index.html    # Main HTML file with UI
-├── index.js      # WebXR application logic
-├── style.css     # Application styles
-├── package.json  # Dependencies and scripts
+├── index.html    # Main HTML file with design management UI
+├── index.js      # WebXR application with painting, measurement, and model tools
+├── style.css     # Application styles and snackbar notifications
+├── package.json  # Dependencies and build scripts
+├── assets/       # 3D model assets (closet.obj)
 └── README.md     # Documentation
 ```
 
@@ -128,21 +145,28 @@ xrloader/
 
 ### "AR not supported on this device"
 - Ensure you're using a WebXR-compatible browser (Meta Quest Browser recommended)
-- Check that your device supports WebXR AR
+- Check device compatibility messages in the app
+- Try accessing from Chrome on an AR-capable mobile device
 
-### Model not loading
-- Ensure the .obj file is valid
-- Check browser console for error messages
-- Try a different .obj file
+### Tool not working
+- Check that you're using the correct controller (left for models, right for tools)
+- Switch tools using right controller thumbstick
+- Look for tool indicator above right controller
 
-### Can't place models
-- Ensure you have adequate lighting
-- Look at surfaces with texture (plain walls may not work well)
-- Move your head slowly to help the device track your environment
+### Can't paint or measure
+- Ensure you're holding the trigger while painting
+- For measurements, trigger once to start, move, then trigger again to finish
+- Check that you're not in model placement mode
 
-### Anchor creation fails
-- The app will fallback to placing models without anchors
-- Anchors require good tracking - ensure adequate lighting and textured surfaces
+### Models not placing
+- Look for the green ring indicator on surfaces
+- Ensure adequate lighting for surface detection
+- Try pointing at textured surfaces rather than plain walls
+
+### Designs not saving
+- Designs auto-save to browser storage
+- Check browser permissions for local storage
+- Use the design management interface to view saved designs
 
 ## Development
 
@@ -175,11 +199,13 @@ This application is deployed using GitHub Pages for easy access:
 ### Extending the Application
 
 The code is modular and can be extended with:
-- Material/texture loading (.mtl files)
-- Multiple model format support (GLTF, FBX)
-- Model rotation and scaling controls
-- Save/load placement configurations
-- Occlusion and lighting estimation
+- Additional 3D models in the assets folder
+- New painting tools and brush types
+- Advanced measurement features (angles, areas)
+- Material/texture support for models
+- Collaborative design features
+- Export/import of designs
+- Voice commands for tool switching
 
 ## License
 
