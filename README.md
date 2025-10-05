@@ -4,12 +4,12 @@ A WebXR application that allows you to load .obj 3D models and place them in you
 
 ## Features
 
-- 📱 **WebXR AR Support**: Built for Meta Quest 3 with passthrough mode
-- 🎯 **Anchor System**: Models are anchored to real-world positions for stable placement
-- 📦 **OBJ Model Loading**: Load any .obj 3D model file
-- 🎨 **Automatic Scaling**: Models are automatically scaled to appropriate size
-- 🔄 **Multiple Placements**: Place the same model multiple times in your space
-- 💡 **Smart Lighting**: Automatic lighting setup for better model visibility
+-  **WebXR AR Support**: Built for Meta Quest 3 with passthrough mode
+-  **Anchor System**: Models are anchored to real-world positions for stable placement
+-  **OBJ Model Loading**: Load any .obj 3D model file
+-  **Automatic Scaling**: Models are automatically scaled to appropriate size
+-  **Multiple Placements**: Place the same model multiple times in your space
+-  **Smart Lighting**: Automatic lighting setup for better model visibility
 
 ## Usage
 
