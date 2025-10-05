@@ -964,8 +964,59 @@ function setupDesignInterface() {
   // Initialize the interface
   refreshDesignsList();
   
+  // Check XR support and inform users
+  checkXRCompatibility();
+  
   // Refresh the list periodically to show any changes
   setInterval(refreshDesignsList, 10000); // Refresh every 10 seconds
+}
+
+// =====================================
+// XR COMPATIBILITY CHECKING
+// =====================================
+
+async function checkXRCompatibility() {
+  // Give the page a moment to load before showing compatibility info
+  setTimeout(async () => {
+    if (!navigator.xr) {
+      // Provide platform-specific guidance
+      const userAgent = navigator.userAgent.toLowerCase();
+      let message = '⚠️ WebXR not detected. ';
+      
+      if (userAgent.includes('iphone') || userAgent.includes('ipad')) {
+        message += 'AR features are not currently supported on iOS Safari. Try using Chrome or consider using an Android device for the full AR experience.';
+      } else if (userAgent.includes('android')) {
+        message += 'Please use Chrome or another WebXR-compatible browser for AR features.';
+      } else {
+        message += 'This app works best on AR-capable mobile devices. For the full experience, try accessing this on a smartphone or tablet with Chrome browser.';
+      }
+      
+      showNotification(message, 'info');
+      return;
+    }
+
+    try {
+      const isARSupported = await navigator.xr.isSessionSupported('immersive-ar');
+      
+      if (!isARSupported) {
+        showNotification(
+          '📱 AR mode not available. This could be due to: device limitations, browser settings, or you may need to enable WebXR flags in your browser. This app works best on modern AR-capable smartphones.',
+          'info'
+        );
+      } else {
+        showNotification(
+          '✨ AR is ready! Click "Start New Design" to begin creating in augmented reality. Make sure to allow camera permissions when prompted.',
+          'success'
+        );
+      }
+    } catch (error) {
+      console.warn('XR compatibility check failed:', error);
+      showNotification(
+        '🔍 Unable to fully detect AR capabilities. Some features may be limited. For the best experience, ensure you\'re using a recent version of Chrome on an AR-compatible device.',
+        'info'
+      );
+    }
+  }, 1000); // Wait 1 second after page load
 }
 
 function showNotification(message, type = 'success') {
@@ -2079,18 +2130,73 @@ function render() {
 
 // Note: Added WebXR session handling features
 // From vr-paint example and VRButton.js
-function startAR() {
-  const sessionInit = {
-    optionalFeatures: [
-      "local-floor",
-      "bounded-floor",
-      "hand-tracking",
-      "layers"
-    ]
-  };
-  navigator.xr
-    .requestSession("immersive-ar", sessionInit)
-    .then(onSessionStarted);
+async function startAR() {
+  // Check if WebXR is supported at all
+  if (!navigator.xr) {
+    showNotification(
+      'WebXR is not supported in this browser. Please use Chrome, Edge, or another WebXR-compatible browser on a supported device.',
+      'error'
+    );
+    return;
+  }
+
+  try {
+    // Check if AR is specifically supported
+    const isARSupported = await navigator.xr.isSessionSupported('immersive-ar');
+    
+    if (!isARSupported) {
+      showNotification(
+        'Augmented Reality (AR) is not supported on this device. You may need an AR-capable smartphone or tablet, or ensure your browser has AR features enabled.',
+        'error'
+      );
+      return;
+    }
+
+    const sessionInit = {
+      optionalFeatures: [
+        "local-floor",
+        "bounded-floor", 
+        "hand-tracking",
+        "layers"
+      ]
+    };
+
+    showNotification('Starting AR session...', 'info');
+    
+    const session = await navigator.xr.requestSession("immersive-ar", sessionInit);
+    await onSessionStarted(session);
+    
+  } catch (error) {
+    console.error('XR session failed:', error);
+    
+    // Provide specific error messages based on the error type
+    if (error.name === 'NotSupportedError') {
+      showNotification(
+        'AR mode is not supported on this device or browser. Please try using a different device or browser with AR capabilities.',
+        'error'
+      );
+    } else if (error.name === 'NotAllowedError') {
+      showNotification(
+        'AR access was denied. Please allow camera and sensor permissions, then try again.',
+        'error'
+      );
+    } else if (error.name === 'SecurityError') {
+      showNotification(
+        'AR cannot be started due to security restrictions. Make sure you are accessing this page over HTTPS.',
+        'error'
+      );
+    } else if (error.name === 'InvalidStateError') {
+      showNotification(
+        'AR session could not be started. Please close any other AR applications and try again.',
+        'error'
+      );
+    } else {
+      showNotification(
+        `AR session failed to start: ${error.message || 'Unknown error'}. Please check your device compatibility and try again.`,
+        'error'
+      );
+    }
+  }
 }
 
 async function onSessionStarted(session) {
@@ -2099,6 +2205,7 @@ async function onSessionStarted(session) {
   await renderer.xr.setSession(session);
   currentSession = session;
   
+  showNotification('AR session started successfully! You can now place and interact with 3D models.', 'success');
   console.log('XR session started');
 }
 
@@ -2115,6 +2222,8 @@ function onSessionEnded() {
     saveDesign(currentDesignName);
     console.log('Final save on session end');
   }
+  
+  showNotification('AR session ended. Your design has been saved automatically.', 'info');
   
   currentSession = null;
   inputSources = [];

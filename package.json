@@ -4,8 +4,8 @@
   "description": "WebXR passthrough example based on threejs example VR paint, tested on Quest 2. Main changes include - Change session to immersive-ar, local-floor instead of local tracking space, transparent sky with alpha enabled\nMake sky transparent\nChange tracking space to local-floor space",
   "main": "index.html",
   "scripts": {
-    "start": "parcel index.html --open",
-    "dev": "parcel index.html --open",
+    "start": "parcel index.html --host 192.168.1.11 --port 3000 --open",
+    "dev": "parcel index.html --host 192.168.1.11 --port 3000 --open",
     "build": "parcel build index.html",
     "build:local": "parcel build index.html",
     "build:gh-pages": "parcel build index.html --public-url /xrloader/",
