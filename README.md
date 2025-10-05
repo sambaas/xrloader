@@ -125,12 +125,12 @@ Access the app directly at: **https://sambaas.github.io/xrloader/**
 
 ```
 xrloader/
-├── index.html    # Main HTML file with design management UI
-├── index.js      # WebXR application with painting, measurement, and model tools
-├── style.css     # Application styles and snackbar notifications
-├── package.json  # Dependencies and build scripts
-├── assets/       # 3D model assets (closet.obj)
-└── README.md     # Documentation
+├── index.html         # Main HTML file with design management UI
+├── design-studio.js   # WebXR application with painting, measurement, and model tools
+├── style.css          # Application styles and snackbar notifications
+├── package.json       # Dependencies and build scripts
+├── assets/            # 3D model assets (closet.obj)
+└── README.md          # Documentation
 ```
 
 ## Browser Compatibility
