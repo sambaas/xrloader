@@ -23,8 +23,6 @@ A comprehensive WebXR application that lets you paint, measure, and create 3D de
 
 ### Quick Start
 
-### Quick Start
-
 #### Option 1: Use GitHub Pages (Recommended)
 
 Access the app directly at: **https://sambaas.github.io/xrloader/**
