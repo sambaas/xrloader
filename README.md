@@ -4,12 +4,12 @@ A WebXR application that allows you to load .obj 3D models and place them in you
 
 ## Features
 
-- 📱 **WebXR AR Support**: Built for Meta Quest 3 with passthrough mode
-- 🎯 **Anchor System**: Models are anchored to real-world positions for stable placement
-- 📦 **OBJ Model Loading**: Load any .obj 3D model file
-- 🎨 **Automatic Scaling**: Models are automatically scaled to appropriate size
-- 🔄 **Multiple Placements**: Place the same model multiple times in your space
-- 💡 **Smart Lighting**: Automatic lighting setup for better model visibility
+- **WebXR AR Support**: Built for Meta Quest 3 with passthrough mode
+- **Anchor System**: Models are anchored to real-world positions for stable placement
+- **OBJ Model Loading**: Load any .obj 3D model file
+- **Automatic Scaling**: Models are automatically scaled to appropriate size
+- **Multiple Placements**: Place the same model multiple times in your space
+- **Smart Lighting**: Automatic lighting setup for better model visibility
 
 ## Usage
 
@@ -38,23 +38,37 @@ Access the app directly at: **https://sambaas.github.io/xrloader/**
 
 #### Option 2: Host Locally
 
-1. **Host the Application**: Serve the files over HTTPS (required for WebXR)
+1. **Install Dependencies and Start Development Server**:
    ```bash
-   # Using Python 3
-   python -m http.server 8000
-   
-   # Or using Node.js http-server
-   npx http-server -p 8000
+   npm install
+   npm run dev
    ```
-   
-   Note: For local testing, you can use `ngrok` or similar tools to create an HTTPS tunnel:
+   The application will be served on `http://localhost:1234` by default.
+
+2. **For Mobile/Quest Access**:
+   To access from mobile devices or Quest on the same network:
    ```bash
-   ngrok http 8000
+   # Get your local IP address
+   ipconfig  # Windows
+   ifconfig  # Mac/Linux
+   
+   # Access using your local IP
+   # Example: http://192.168.1.100:1234
+   ```
+
+3. **For HTTPS (Recommended for WebXR)**:
+   WebXR APIs require HTTPS. For local development, you can use:
+   ```bash
+   # Using ngrok for HTTPS tunnel
+   npx ngrok http 1234
+   
+   # Or serve with HTTPS certificate
+   # (requires certificate setup)
    ```
 
 2. **Access on Quest 3**: 
    - Open the Meta Quest Browser
-   - Navigate to your hosted URL (e.g., `https://your-url.ngrok.io`)
+   - Navigate to your hosted URL (e.g., `https://your-url.ngrok.io` or your local IP with port)
 
 3. **Load and Place Models**:
    - Same steps as Option 1
@@ -98,15 +112,17 @@ The green ring indicator shows where the model will be placed. It uses WebXR hit
 ```
 xrloader/
 ├── index.html    # Main HTML file with UI
-├── app.js        # WebXR application logic
+├── index.js      # WebXR application logic
+├── style.css     # Application styles
+├── package.json  # Dependencies and scripts
 └── README.md     # Documentation
 ```
 
 ## Browser Compatibility
 
-- ✅ Meta Quest Browser (Quest 3)
-- ✅ Meta Quest Browser (Quest 2 with passthrough)
-- ⚠️ Other WebXR-compatible browsers (features may vary)
+- **Supported**: Meta Quest Browser (Quest 3)
+- **Supported**: Meta Quest Browser (Quest 2 with passthrough)
+- **Limited**: Other WebXR-compatible browsers (features may vary)
 
 ## Troubleshooting
 
@@ -133,9 +149,11 @@ xrloader/
 ### Local Testing
 
 For local development on Quest 3:
-1. Enable Developer Mode on your Quest 3
-2. Use HTTPS (required for WebXR)
-3. Connect via local network or use ngrok/similar tunneling service
+1. Install dependencies: `npm install`
+2. Start development server: `npm run dev`
+3. Enable Developer Mode on your Quest 3 (if needed)
+4. Use HTTPS (required for WebXR) - consider using ngrok for tunneling
+5. Connect via local network using your machine's IP address and port 1234
 
 ### Deploying to GitHub Pages
 
